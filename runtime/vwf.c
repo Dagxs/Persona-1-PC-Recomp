@@ -94,12 +94,41 @@ static void upload_cell(int line, int cell) {
     ECX = save_ecx; EDX = save_edx; EAX = save_eax;
 }
 
-// Draw the glyph the interpreter pushed (its argument is at [ESP]) at the pen.
+// A glyph's rows (narrow English: 1 byte per row, or wide original: 2 bytes) and its advance.
+struct glyph { int adv, wide; const uint8_t *narrow; uint32_t wide_src; };
+static void glyph_of(uint32_t code, int two_byte, struct glyph *g) {
+    if (code >= 0x88 && code <= 0xfe && !two_byte) {
+        int k = (int)code - ENGLISH_BIAS - font_first;
+        if (k < 0 || k >= font_count) k = ' ' - font_first;   // unknown code: a space
+        g->narrow = font_rows[k]; g->adv = font_width[k]; g->wide = 0; g->wide_src = 0;
+    } else {
+        g->narrow = 0; g->wide_src = RD32(ADV_FONT_PTR) + (code & 0x7ffu) * 32u; g->adv = 16; g->wide = 1;
+    }
+}
+
+// compose: ink in the main colour, a shadow one pixel right and down
+static void draw_glyph(int line, const struct glyph *g) {
+    for (int r = 0; r < 16; r++) {
+        uint32_t bits = g->wide ? (uint32_t)RD8(g->wide_src + 2u * r) << 8 | RD8(g->wide_src + 2u * r + 1)
+                                : (uint32_t)g->narrow[r] << 8;
+        for (int b = 0; bits && b < 16; b++)
+            if (bits & (0x8000u >> b)) {
+                plot(line, pen + b, r, COLOR_MAIN, 0);
+                plot(line, pen + b + 1, r + 1, COLOR_SHADOW, 1);
+            }
+    }
+}
+
+// Draw the glyph the interpreter pushed (its argument is at [ESP]) at the pen. With a text speed
+// above 1, the next plain characters of the same line are drawn in the same call: the read
+// pointer moves past them, so the interpreter carries on after them next frame. Anything that is
+// not a plain one-byte character (a control code, a two-byte glyph) ends the batch, so waits,
+// choices and pauses behave exactly as before.
 void vwf_emit(int interp, int name_path) {
     (void)interp;
     if (!ring) ring = hostobj_alloc(4 * COLS * 128);
     uint32_t st = ESI;
-    uint32_t glyph = RD32(ESP) & 0xffffu;
+    uint32_t code = RD32(ESP) & 0xffffu;
     uint32_t pos = RD16(st + 0xa);
     int line = (int)(pos / COLS) & 3, col = (int)(pos % COLS);
     if (col == 0 || line != cur_line) {          // a fresh line: start at its left edge
@@ -107,25 +136,11 @@ void vwf_emit(int interp, int name_path) {
         pen = 0;
         memset(box[line], 0, sizeof box[line]);
     }
-
-    // glyph rows and advance
-    int adv, wide;
-    const uint8_t *narrow = 0;
-    uint32_t wide_src = 0;
-    if (glyph >= 0x88 && glyph <= 0xfe && !vwf_two_byte) {
-        int k = (int)glyph - ENGLISH_BIAS - font_first;
-        if (k < 0 || k >= font_count) k = ' ' - font_first;   // unknown code: a space
-        narrow = font_rows[k];
-        adv = font_width[k];
-        wide = 0;
-    } else {
-        wide_src = RD32(ADV_FONT_PTR) + (glyph & 0x7ffu) * 32u;
-        adv = 16;
-        wide = 1;
-    }
+    struct glyph g;
+    glyph_of(code, vwf_two_byte, &g);
 
     // does it fit on this line?
-    if (pen > 0 && pen + adv > BOX_W) {
+    if (pen > 0 && pen + g.adv > BOX_W) {
         if (!name_path) EDI -= vwf_two_byte ? 2u : 1u;         // re-read it on the next line
         else {
             if (RD32(st) & 0x200000u) EDI += 1; else EDI -= 1;  // name read backwards / forwards
@@ -135,22 +150,25 @@ void vwf_emit(int interp, int name_path) {
         return;
     }
 
-    // compose: ink in the main colour, a shadow one pixel right and down
-    for (int r = 0; r < 16; r++) {
-        uint32_t bits = wide ? (uint32_t)RD8(wide_src + 2u * r) << 8 | RD8(wide_src + 2u * r + 1)
-                             : (uint32_t)narrow[r] << 8;
-        for (int b = 0; bits && b < 16; b++)
-            if (bits & (0x8000u >> b)) {
-                plot(line, pen + b, r, COLOR_MAIN, 0);
-                plot(line, pen + b + 1, r + 1, COLOR_SHADOW, 1);
-            }
+    int start = pen;
+    draw_glyph(line, &g);
+    pen += g.adv;
+    // more characters this frame (text speed); only on the plain text path
+    for (int extra = name_path ? 0 : cfg.text_speed - 1; extra > 0 && pen < BOX_W; extra--) {
+        uint32_t b = RD8(EDI);
+        if (b == 0xff || (b >= 0x80 && b <= 0x87)) break;     // control code or two-byte glyph
+        struct glyph n;
+        glyph_of(b, 0, &n);
+        if (pen + n.adv > BOX_W) break;                        // the interpreter wraps it itself
+        draw_glyph(line, &n);
+        pen += n.adv;
+        EDI += 1;
     }
-    int c0 = pen >> 4, c1 = (pen + adv + 2) >> 4;
+    int c0 = start >> 4, c1 = (pen + 2) >> 4;
     if (c1 > COLS - 1) c1 = COLS - 1;
     for (int c = c0; c <= c1; c++) upload_cell(line, c);
 
-    // advance the pen; the cell position follows it
-    pen += adv;
+    // the cell position follows the pen
     if (pen >= BOX_W) {
         WR16(st + 0xa, (uint32_t)(((line + 1) & 3) * COLS));
         return;

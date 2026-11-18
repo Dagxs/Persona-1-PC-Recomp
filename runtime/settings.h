@@ -13,6 +13,7 @@ struct settings {
     int pad_japanese;    // 1: right face button confirms (original Japanese layout)
     int volume;          // master volume 0..100
     int language;        // LANG_*
+    int text_speed;      // English dialogue characters per frame: 1 original, 2 fast, 3 faster
     int show_launcher;   // show the launcher before the game starts
 };
 

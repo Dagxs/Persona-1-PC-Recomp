@@ -13,7 +13,7 @@
 #define CW 960
 #define CH 720
 
-enum { IT_FULLSCREEN, IT_SCALE, IT_RENDER, IT_INTEGER, IT_FILTER, IT_VSYNC, IT_PAD, IT_VOLUME, IT_LANGUAGE, IT_LAUNCHER,
+enum { IT_FULLSCREEN, IT_SCALE, IT_RENDER, IT_INTEGER, IT_FILTER, IT_VSYNC, IT_PAD, IT_VOLUME, IT_LANGUAGE, IT_TEXTSPEED, IT_LAUNCHER,
        IT_GO, IT_QUIT, IT_COUNT };
 
 static const char *label(int it, int launcher) {
@@ -27,6 +27,7 @@ static const char *label(int it, int launcher) {
     case IT_PAD: return "Controller layout";
     case IT_VOLUME: return "Volume";
     case IT_LANGUAGE: return "Language";
+    case IT_TEXTSPEED: return "English text speed";
     case IT_LAUNCHER: return "Launcher at startup";
     case IT_GO: return launcher ? "Play" : "Resume";
     default: return launcher ? "Quit" : "Quit game";
@@ -54,6 +55,7 @@ static void value(int it, char *out, size_t cap) {
                  pending ? "  - restart" : "");
         break;
     }
+    case IT_TEXTSPEED: snprintf(out, cap, "%s", cfg.text_speed == 1 ? "Original (1 letter per frame)" : cfg.text_speed == 2 ? "Fast (2 per frame)" : "Faster (3 per frame)"); break;
     case IT_LAUNCHER: snprintf(out, cap, "%s", cfg.show_launcher ? "Show" : "Skip"); break;
     default: out[0] = 0;
     }
@@ -78,6 +80,7 @@ static int change(int it, int dir) {
         if (!settings_english_available()) return 0;
         cfg.language = !cfg.language;
         return 1;
+    case IT_TEXTSPEED: cfg.text_speed = (cfg.text_speed - 1 + dir + 3) % 3 + 1; return 1;
     case IT_LAUNCHER: cfg.show_launcher = !cfg.show_launcher; return 1;
     default: return 0;
     }
@@ -97,7 +100,7 @@ static void rect(float x, float y, float w, float h, uint8_t r, uint8_t g, uint8
     SDL_RenderFillRect(R_, &f);
 }
 
-#define ROW_Y(k) (176.0f + 38.0f * (float)(k) + ((k) >= IT_GO ? 24.0f : 0.0f))
+#define ROW_Y(k) (168.0f + 36.0f * (float)(k) + ((k) >= IT_GO ? 24.0f : 0.0f))
 #define ROW_X 96.0f
 #define ROW_W 768.0f
 #define VAL_X (ROW_X + 352.0f)

@@ -7,7 +7,7 @@
 
 struct settings cfg = {
     .fullscreen = 0, .window_scale = 2, .render_scale = 2, .integer_scale = 0, .smooth = 0, .vsync = 1,
-    .pad_japanese = 0, .volume = 100, .language = LANG_JAPANESE, .show_launcher = 1,
+    .pad_japanese = 0, .volume = 100, .language = LANG_JAPANESE, .text_speed = 1, .show_launcher = 1,
 };
 
 static const struct { const char *key; int *val; int lo, hi; } FIELDS[] = {
@@ -15,7 +15,7 @@ static const struct { const char *key; int *val; int lo, hi; } FIELDS[] = {
     { "render_scale", &cfg.render_scale, 1, 4 },
     { "integer_scale", &cfg.integer_scale, 0, 1 }, { "smooth", &cfg.smooth, 0, 1 },
     { "vsync", &cfg.vsync, 0, 1 }, { "pad_japanese", &cfg.pad_japanese, 0, 1 },
-    { "volume", &cfg.volume, 0, 100 }, { "language", &cfg.language, 0, 1 },
+    { "volume", &cfg.volume, 0, 100 }, { "language", &cfg.language, 0, 1 }, { "text_speed", &cfg.text_speed, 1, 3 },
     { "show_launcher", &cfg.show_launcher, 0, 1 },
 };
 #define NFIELDS (int)(sizeof FIELDS / sizeof FIELDS[0])
@@ -29,12 +29,7 @@ void settings_load(void) {
     char path[512], line[256];
     path_of(path, sizeof path);
     FILE *f = fopen(path, "r");
-    if (!f) {
-        if (getenv("P1_RENDER_SCALE")) cfg.render_scale = atoi(getenv("P1_RENDER_SCALE"));
-        if (getenv("P1_LANG")) cfg.language = !strcmp(getenv("P1_LANG"), "en") ? LANG_ENGLISH : LANG_JAPANESE;
-        return;
-    }
-    while (fgets(line, sizeof line, f)) {
+    while (f && fgets(line, sizeof line, f)) {
         char *eq = strchr(line, '=');
         if (!eq || line[0] == '#' || line[0] == ';') continue;
         *eq = 0;
@@ -44,9 +39,11 @@ void settings_load(void) {
                 *FIELDS[k].val = v < FIELDS[k].lo ? FIELDS[k].lo : v > FIELDS[k].hi ? FIELDS[k].hi : v;
             }
     }
-    fclose(f);
-    if (getenv("P1_RENDER_SCALE")) cfg.render_scale = atoi(getenv("P1_RENDER_SCALE"));   // tests
+    if (f) fclose(f);
+    // test overrides (not saved)
+    if (getenv("P1_RENDER_SCALE")) cfg.render_scale = atoi(getenv("P1_RENDER_SCALE"));
     if (getenv("P1_LANG")) cfg.language = !strcmp(getenv("P1_LANG"), "en") ? LANG_ENGLISH : LANG_JAPANESE;
+    if (getenv("P1_TEXT_SPEED")) cfg.text_speed = atoi(getenv("P1_TEXT_SPEED"));
     if (cfg.language == LANG_ENGLISH && !settings_english_available()) cfg.language = LANG_JAPANESE;
 }
 
