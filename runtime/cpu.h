@@ -22,9 +22,17 @@ extern uint32_t FS_BASE;              // guest address of the current thread's T
 extern uint8_t *MEM;
 #define MEM_SIZE (512u << 20)
 #define MEM_MASK (MEM_SIZE - 1u)
-static inline uint8_t RD8(uint32_t a) { return MEM[a & MEM_MASK]; }
-static inline uint16_t RD16(uint32_t a) { uint16_t v; memcpy(&v, MEM + (a & MEM_MASK), 2); return v; }
-static inline uint32_t RD32(uint32_t a) { uint32_t v; memcpy(&v, MEM + (a & MEM_MASK), 4); return v; }
+#ifdef P1_WATCHREAD
+// debug builds: report which guest function reads a watched address range (P1_WATCH_LO/LEN)
+void watch_read(uint32_t a);
+extern uint32_t watch_lo, watch_len;
+#define WATCHED(a) do { if ((a) - watch_lo < watch_len) watch_read(a); } while (0)
+#else
+#define WATCHED(a) ((void)0)
+#endif
+static inline uint8_t RD8(uint32_t a) { WATCHED(a); return MEM[a & MEM_MASK]; }
+static inline uint16_t RD16(uint32_t a) { WATCHED(a); uint16_t v; memcpy(&v, MEM + (a & MEM_MASK), 2); return v; }
+static inline uint32_t RD32(uint32_t a) { WATCHED(a); uint32_t v; memcpy(&v, MEM + (a & MEM_MASK), 4); return v; }
 static inline uint64_t RD64(uint32_t a) { uint64_t v; memcpy(&v, MEM + (a & MEM_MASK), 8); return v; }
 static inline void WR8(uint32_t a, uint32_t v) { MEM[a & MEM_MASK] = (uint8_t)v; }
 static inline void WR16(uint32_t a, uint32_t v) { uint16_t t = (uint16_t)v; memcpy(MEM + (a & MEM_MASK), &t, 2); }

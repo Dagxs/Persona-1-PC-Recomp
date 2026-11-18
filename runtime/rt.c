@@ -155,3 +155,28 @@ int main(int argc, char **argv) {
     rt_call(GUEST_ENTRY, MAGIC_EXIT);
     rt_fatal("guest entry point returned");
 }
+
+#ifdef P1_WATCHREAD
+uint32_t watch_lo = 0xffffffffu, watch_len;
+static struct { uint32_t fn, n, lo, hi; } watch_hits[256];
+static int watch_n;
+static void watch_dump(void) {
+    for (int k = 0; k < watch_n; k++)
+        fprintf(stderr, "watch: %08x read %u times, %08x-%08x\n", watch_hits[k].fn, watch_hits[k].n, watch_hits[k].lo, watch_hits[k].hi);
+}
+void watch_read(uint32_t a) {
+    uint32_t fn = rt_fn_of[rt_tidx];
+    for (int k = 0; k < watch_n; k++)
+        if (watch_hits[k].fn == fn) {
+            watch_hits[k].n++;
+            if (a < watch_hits[k].lo) watch_hits[k].lo = a;
+            if (a > watch_hits[k].hi) watch_hits[k].hi = a;
+            return;
+        }
+    if (watch_n < 256) { watch_hits[watch_n].fn = fn; watch_hits[watch_n].n = 1; watch_hits[watch_n].lo = watch_hits[watch_n].hi = a; watch_n++; }
+}
+__attribute__((constructor)) static void watch_init(void) {
+    const char *lo = getenv("P1_WATCH_LO"), *len = getenv("P1_WATCH_LEN");
+    if (lo && len) { watch_lo = (uint32_t)strtoul(lo, 0, 16); watch_len = (uint32_t)strtoul(len, 0, 16); atexit(watch_dump); }
+}
+#endif

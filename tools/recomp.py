@@ -178,7 +178,10 @@ class Gen:
             i = fn.body[a]
             out.append('L_%x:' % a)
             try:
-                lines, falls = self.insn(fn, i)
+                if a in PATCHES:
+                    lines, falls = PATCHES[a], True
+                else:
+                    lines, falls = self.insn(fn, i)
             except (Unsupported, KeyError, IndexError) as ex:
                 self.unimpl['%s (%s)' % (i.mnemonic, ex)] += 1
                 lines, falls = ['rt_unimpl(0x%xu, "%s %s");' % (a, i.mnemonic, i.op_str)], False
@@ -465,6 +468,32 @@ class Gen:
         if m in simple:
             return [simple[m]]
         raise Unsupported('fpu')
+
+
+# ------------------------------------------------------------ patch points
+# Instructions replaced by C. Every patch keeps the original behaviour when the feature is off,
+# so the generated code still runs the retail game unchanged.
+#
+# English dialogue (runtime/vwf.c), ADV text interpreter f_00478cf0 - the same hook points as
+# the PS1 translation's ADV patch (src/asm/common/shared_patches.inc there):
+#   * byte classification: two-byte glyph codes are 80-87 only, so 88-E6 are English characters
+#   * the glyph call goes to the variable-width engine, which also activates the cells it
+#     touched and owns the cell position (state+0xA), so the interpreter's own activate call
+#     and pos++ are skipped
+PATCHES = {
+    # text path: `cmp bx, 0x7f` / `jbe single`  ->  single byte unless 80-87 (with English on)
+    0x479522: ['vwf_two_byte = !((uint16_t)EBX <= 0x7f || (vwf_active && (uint16_t)EBX >= 0x88));',
+               'if (!vwf_two_byte) goto L_479535;'],
+    0x479526: [],
+    0x47954c: ['if (vwf_active) { vwf_emit(VWF_ADV, 0); ESP += 4; } else CALL(f_00479670, 0x479551u);'],
+    0x479557: ['if (!vwf_active) CALL(f_00479610, 0x47955cu);'],
+    0x479560: ['if (!vwf_active) WR16(ESI + 0xau, op_inc(RD16(ESI + 0xau), 16));'],
+    # name-insertion path (a name's glyphs come from the name buffer, never two-byte)
+    0x479463: ['vwf_two_byte = 0;',
+               'if (vwf_active) { vwf_emit(VWF_ADV, 1); ESP += 4; } else CALL(f_00479670, 0x479468u);'],
+    0x47946e: ['if (!vwf_active) CALL(f_00479610, 0x479473u);'],
+    0x479477: ['if (!vwf_active) WR16(ESI + 0xau, op_inc(RD16(ESI + 0xau), 16));'],
+}
 
 
 def main():
