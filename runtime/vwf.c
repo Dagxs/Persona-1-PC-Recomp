@@ -17,15 +17,18 @@
 #include <stdlib.h>
 #include <string.h>
 
-int vwf_active;      // 1 while the English dialogue engine is in use
+int vwf_active;      // 1 while English is on (story dialogue)
+int vwf_on[3];       // per interpreter copy: 1 when its English data is installed and verified
 int vwf_two_byte;    // the glyph being drawn came from a two-byte code (for the rewind)
 
-// ---------------------------------------------------------------- the ADV interpreter's data
-#define ADV_FONT_PTR      0x618f80u   // u32: guest address of FONT.BIN (32 bytes per glyph)
-#define ADV_QUEUE_COUNT   0x61ec28u   // u32: entries in the VRAM upload queue
-#define ADV_QUEUE         0x61ecb8u   // 12-byte entries {u32 src; u16 x, y, w, h}
-#define ADV_QUEUE_MAX     64          // the next variable starts at 0x61efb8
-#define ADV_ACTIVATE      0x479610u   // void(ecx = cell position): map entry + cell setup
+// ---------------------------------------------------------------- the interpreters' data
+// Each copy of the interpreter has its own FONT.BIN pointer, VRAM upload queue and map routine.
+struct interp_cfg { uint32_t font_ptr, queue_count, queue, queue_max, activate; };
+static const struct interp_cfg CFG[3] = {
+    [VWF_ADV] = { 0x618f80u, 0x61ec28u, 0x61ecb8u, 64, 0x479610u },
+    [VWF_B]   = { 0x5e0e8cu, 0x5e5478u, 0x5e4f18u, 64, 0x4212b0u },
+    [VWF_C]   = { 0x62985cu, 0x62a248u, 0x62a278u, 32, 0x4e20f0u },
+};
 #define TEXT_VRAM_X       0x3c0u
 #define TEXT_VRAM_Y       0x100u
 
@@ -59,9 +62,18 @@ int vwf_load_font(const char *path) {
 }
 
 // ---------------------------------------------------------------- engine state
-static uint8_t box[4][16][BOX_W + 32];   // colour index per pixel, one image per box line
-static int cur_line = -1, pen;
-static uint32_t ring;                     // guest buffer: one 128-byte cell per box position
+struct engine {
+    uint8_t box[4][16][BOX_W + 32];       // colour index per pixel, one image per box line
+    int cur_line, pen;
+    uint32_t ring;                        // guest buffer: one 128-byte cell per box position
+};
+static struct engine engines[3] = { [0] = { .cur_line = -1 }, [1] = { .cur_line = -1 }, [2] = { .cur_line = -1 } };
+static struct engine *E_;                 // the engine of the interpreter being served
+static const struct interp_cfg *C_;
+#define box (E_->box)
+#define cur_line (E_->cur_line)
+#define pen (E_->pen)
+#define ring (E_->ring)
 
 static void plot(int line, int x, int y, uint8_t c, int under) {
     if (x < 0 || x >= BOX_W + 32 || y < 0 || y >= 16) return;
@@ -78,19 +90,19 @@ static void upload_cell(int line, int cell) {
         for (int x = 0; x < 16; x += 2)
             WR8(src + (uint32_t)y * 8u + (uint32_t)x / 2u,
                 box[line][y][cell * 16 + x] | box[line][y][cell * 16 + x + 1] << 4);
-    uint32_t n = RD32(ADV_QUEUE_COUNT);
-    if (n < ADV_QUEUE_MAX) {
-        uint32_t e = ADV_QUEUE + 12u * n;
+    uint32_t n = RD32(C_->queue_count);
+    if (n < C_->queue_max) {
+        uint32_t e = C_->queue + 12u * n;
         WR32(e, src);
         WR16(e + 4, TEXT_VRAM_X + ((P + 1) & 15u) * 4u);
         WR16(e + 6, TEXT_VRAM_Y + ((P + 1) & 0xf0u));
         WR16(e + 8, 4);
         WR16(e + 10, 16);
-        WR32(ADV_QUEUE_COUNT, n + 1);
+        WR32(C_->queue_count, n + 1);
     }
     uint32_t save_ecx = ECX, save_edx = EDX, save_eax = EAX;
     ECX = P;
-    rt_call(ADV_ACTIVATE, MAGIC_RET);
+    rt_call(C_->activate, MAGIC_RET);
     ECX = save_ecx; EDX = save_edx; EAX = save_eax;
 }
 
@@ -102,7 +114,7 @@ static void glyph_of(uint32_t code, int two_byte, struct glyph *g) {
         if (k < 0 || k >= font_count) k = ' ' - font_first;   // unknown code: a space
         g->narrow = font_rows[k]; g->adv = font_width[k]; g->wide = 0; g->wide_src = 0;
     } else {
-        g->narrow = 0; g->wide_src = RD32(ADV_FONT_PTR) + (code & 0x7ffu) * 32u; g->adv = 16; g->wide = 1;
+        g->narrow = 0; g->wide_src = RD32(C_->font_ptr) + (code & 0x7ffu) * 32u; g->adv = 16; g->wide = 1;
     }
 }
 
@@ -125,7 +137,8 @@ static void draw_glyph(int line, const struct glyph *g) {
 // not a plain one-byte character (a control code, a two-byte glyph) ends the batch, so waits,
 // choices and pauses behave exactly as before.
 void vwf_emit(int interp, int name_path) {
-    (void)interp;
+    E_ = &engines[interp];
+    C_ = &CFG[interp];
     if (!ring) ring = hostobj_alloc(4 * COLS * 128);
     uint32_t st = ESI;
     uint32_t code = RD32(ESP) & 0xffffu;

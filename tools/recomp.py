@@ -480,20 +480,32 @@ class Gen:
 #   * the glyph call goes to the variable-width engine, which also activates the cells it
 #     touched and owns the cell position (state+0xA), so the interpreter's own activate call
 #     and pos++ are skipped
-PATCHES = {
-    # text path: `cmp bx, 0x7f` / `jbe single`  ->  single byte unless 80-87 (with English on)
-    0x479522: ['vwf_two_byte = !((uint16_t)EBX <= 0x7f || (vwf_active && (uint16_t)EBX >= 0x88));',
-               'if (!vwf_two_byte) goto L_479535;'],
-    0x479526: [],
-    0x47954c: ['if (vwf_active) { vwf_emit(VWF_ADV, 0); ESP += 4; } else CALL(f_00479670, 0x479551u);'],
-    0x479557: ['if (!vwf_active) CALL(f_00479610, 0x47955cu);'],
-    0x479560: ['if (!vwf_active) WR16(ESI + 0xau, op_inc(RD16(ESI + 0xau), 16));'],
-    # name-insertion path (a name's glyphs come from the name buffer, never two-byte)
-    0x479463: ['vwf_two_byte = 0;',
-               'if (vwf_active) { vwf_emit(VWF_ADV, 1); ESP += 4; } else CALL(f_00479670, 0x479468u);'],
-    0x47946e: ['if (!vwf_active) CALL(f_00479610, 0x479473u);'],
-    0x479477: ['if (!vwf_active) WR16(ESI + 0xau, op_inc(RD16(ESI + 0xau), 16));'],
-}
+def dialogue_patches(interp, classify, single, text_emit, name_emit):
+    """The English dialogue hooks for one copy of the MsgStep text interpreter. Each copy has the
+    same shape: `cmp bx, 0x7f` (classify) / `jbe single`; glyph call (5 bytes) followed by
+    `mov cx,[esi+0xa]; mov edx,ebx` (5 bytes), the activate call (5 bytes), one 4-byte
+    instruction and `inc word [esi+0xa]`, for both the text and the name-insertion path."""
+    p = {
+        classify: ['vwf_two_byte = !((uint16_t)EBX <= 0x7f || (vwf_on[%s] && (uint16_t)EBX >= 0x88));' % interp,
+                   'if (!vwf_two_byte) goto L_%x;' % single],
+        classify + 4: [],
+    }
+    glyph = None
+    for emit, name in ((text_emit, 0), (name_emit, 1)):
+        act, inc = emit + 0x0b, emit + 0x14
+        p[emit] = (['vwf_two_byte = 0;'] if name else []) + [
+            'if (vwf_on[%s]) { vwf_emit(%s, %d); ESP += 4; } else CALL(f_%08x, 0x%xu);' % (interp, interp, name, GLYPH[interp], emit + 5)]
+        p[act] = ['if (!vwf_on[%s]) CALL(f_%08x, 0x%xu);' % (interp, ACTIVATE[interp], act + 5)]
+        p[inc] = ['if (!vwf_on[%s]) WR16(ESI + 0xau, op_inc(RD16(ESI + 0xau), 16));' % interp]
+    return p
+
+
+GLYPH = {'VWF_ADV': 0x479670, 'VWF_B': 0x421310, 'VWF_C': 0x4e2150}
+ACTIVATE = {'VWF_ADV': 0x479610, 'VWF_B': 0x4212b0, 'VWF_C': 0x4e20f0}
+PATCHES = {}
+PATCHES.update(dialogue_patches('VWF_ADV', 0x479522, 0x479535, 0x47954c, 0x479463))
+PATCHES.update(dialogue_patches('VWF_B', 0x4211cb, 0x4211de, 0x4211f5, 0x42110c))
+PATCHES.update(dialogue_patches('VWF_C', 0x4e200b, 0x4e201e, 0x4e2035, 0x4e1f4c))
 
 
 def main():

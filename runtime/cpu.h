@@ -276,8 +276,9 @@ extern _Thread_local int rt_tidx;
 
 // English dialogue engine (runtime/vwf.c), called from the patch points in tools/recomp.py.
 // While vwf_active is 0 the patched code runs the original Japanese paths.
-enum { VWF_ADV };
+enum { VWF_ADV, VWF_B, VWF_C };   // the three copies of the MsgStep interpreter
 extern int vwf_active, vwf_two_byte;
+extern int vwf_on[3];   // per interpreter: English engine in use (off: the original code runs)
 void vwf_emit(int interp, int name_path);
 
 // direct call to a recompiled function: push the guest return address, run it
