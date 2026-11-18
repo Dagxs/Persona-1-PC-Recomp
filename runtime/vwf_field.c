@@ -15,6 +15,7 @@
 // returns through the interpreter's own resume pointer, as in the PS1 patch (dng/spill.asm).
 #include "rt.h"
 #include "paths.h"
+#include "host.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -97,11 +98,20 @@ void vwf_field_put(void) {
     int line = (int)RD32(F_LINE), col = (int)RD32(F_COL);
     if (col == 0 || line != cur_line) fresh_line(line);
 
-    const uint8_t *narrow = 0;
+    // the glyph, or a button prompt's label (several narrow glyphs)
+    const uint8_t *narrow[8] = { 0 };
     uint32_t wide = 0;
-    int adv;
-    if (!two && code >= 0x88 && code <= 0xfe) adv = vwf_glyph((int)code - ENGLISH_BIAS, &narrow);
-    else { wide = RD32(F_FONT) + code * 32u; adv = 16; }
+    int adv = 0, ng = 0, gadv[8];
+    const char *label = 0;
+    int act = vwf_button_action(code, two), ps;
+    if (act >= 0) {
+        label = host_button_label(act, &ps);
+        if (!label) code = VWF_PS_GLYPH[ps];
+    }
+    if (label) {
+        for (const char *c = label; *c && ng < 8; c++, ng++) adv += gadv[ng] = vwf_glyph((unsigned char)*c, &narrow[ng]);
+    } else if (!two && code >= 0x88 && code <= 0xfe) { adv = gadv[0] = vwf_glyph((int)code - ENGLISH_BIAS, &narrow[0]); ng = 1; }
+    else { wide = RD32(F_FONT) + code * 32u; adv = gadv[0] = 16; ng = 1; }
 
     if (pen > 0 && pen + adv > BOX_W) {         // does not fit: next line (the box scrolls itself)
         call_saved(F_NEWLINE);
@@ -109,16 +119,18 @@ void vwf_field_put(void) {
         fresh_line(line);
     }
     int row = row_of(line), start = pen;
-    for (int r = 0; r < 16; r++) {
-        uint32_t bits = wide ? (uint32_t)RD8(wide + 2u * r) << 8 | RD8(wide + 2u * r + 1)
-                             : (uint32_t)narrow[r] << 8;
-        for (int b = 0; bits && b < 16; b++)
-            if (bits & (0x8000u >> b)) {
-                plot(row, pen + b, r, INK, 0);
-                plot(row, pen + b + 1, r + 1, SHADOW, 1);
-            }
+    for (int k = 0; k < ng; k++) {
+        for (int r = 0; r < 16; r++) {
+            uint32_t bits = wide ? (uint32_t)RD8(wide + 2u * r) << 8 | RD8(wide + 2u * r + 1)
+                                 : (uint32_t)narrow[k][r] << 8;
+            for (int b = 0; bits && b < 16; b++)
+                if (bits & (0x8000u >> b)) {
+                    plot(row, pen + b, r, INK, 0);
+                    plot(row, pen + b + 1, r + 1, SHADOW, 1);
+                }
+        }
+        pen += gadv[k];
     }
-    pen += adv;
     int c0 = start >> 4, c1 = (pen + 1) >> 4;
     if (c1 > COLS - 1) c1 = COLS - 1;
     for (int c = c0; c <= c1; c++) upload(line, c);

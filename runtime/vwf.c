@@ -17,6 +17,17 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "host.h"
+
+// The PlayStation button symbols in the font (glyphs, written as two-byte codes): circle, cross,
+// triangle, square. Prompts naming them show the button of the device in use (host_button_label).
+const uint32_t VWF_PS_GLYPH[4] = { 0xea, 0xe3, 0xee, 0xec };
+int vwf_button_action(uint32_t code, int two_byte) {
+    if (!two_byte) return -1;
+    for (int k = 0; k < 4; k++) if ((code & 0x7ffu) == VWF_PS_GLYPH[k]) return k;
+    return -1;
+}
+
 int vwf_active;      // 1 while English is on (story dialogue)
 int vwf_on[3];       // per interpreter copy: 1 when its English data is installed and verified
 int vwf_two_byte;    // the glyph being drawn came from a two-byte code (for the rewind)
@@ -149,11 +160,28 @@ void vwf_emit(int interp, int name_path) {
         pen = 0;
         memset(box[line], 0, sizeof box[line]);
     }
-    struct glyph g;
-    glyph_of(code, vwf_two_byte, &g);
+    // the glyph, or a button prompt's label (several narrow glyphs)
+    struct glyph gs[8];
+    int ng = 0, adv = 0;
+    const char *label = 0;
+    int act = vwf_button_action(code, vwf_two_byte), ps;
+    if (act >= 0) {
+        label = host_button_label(act, &ps);
+        if (!label) code = VWF_PS_GLYPH[ps];
+    }
+    if (label) {
+        for (const char *c = label; *c && ng < 8; c++) {
+            glyph_of((uint32_t)(unsigned char)*c + ENGLISH_BIAS, 0, &gs[ng]);
+            adv += gs[ng++].adv;
+        }
+    } else {
+        glyph_of(code, vwf_two_byte, &gs[0]);
+        adv = gs[0].adv;
+        ng = 1;
+    }
 
     // does it fit on this line?
-    if (pen > 0 && pen + g.adv > BOX_W) {
+    if (pen > 0 && pen + adv > BOX_W) {
         if (!name_path) EDI -= vwf_two_byte ? 2u : 1u;         // re-read it on the next line
         else {
             if (RD32(st) & 0x200000u) EDI += 1; else EDI -= 1;  // name read backwards / forwards
@@ -164,8 +192,10 @@ void vwf_emit(int interp, int name_path) {
     }
 
     int start = pen;
-    draw_glyph(line, &g);
-    pen += g.adv;
+    for (int k = 0; k < ng; k++) {
+        draw_glyph(line, &gs[k]);
+        pen += gs[k].adv;
+    }
     // more characters this frame (text speed); only on the plain text path
     for (int extra = name_path ? 0 : cfg.text_speed - 1; extra > 0 && pen < BOX_W; extra--) {
         uint32_t b = RD8(EDI);

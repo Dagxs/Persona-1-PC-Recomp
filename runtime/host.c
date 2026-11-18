@@ -41,6 +41,36 @@ static int pad_vk(SDL_GamepadButton b) {
     default: return 0;
     }
 }
+// The game's text names PlayStation buttons (the casino help: "[O button] Add a coin"). With
+// English on, the text engines ask for the label of the button that does that action on the device
+// last used: a key name, or the gamepad's own label (A/B/X/Y, or the PlayStation symbols).
+static SDL_JoystickID last_pad;          // 0: the keyboard was used last
+static const char *const KEY_NAMES[4] = { "Enter", "Esc", "F2", "F1" };
+// action: 0 = circle (confirm), 1 = cross (cancel), 2 = triangle, 3 = square. Returns a text label,
+// or NULL with *ps set to the PlayStation symbol to show instead (0 = circle .. 3 = square).
+const char *host_button_label(int action, int *ps) {
+    static const int vk_of_action[4] = { VK_CIRCLE, VK_CROSS, VK_TRIANGLE, VK_SQUARE };
+    *ps = action;
+    SDL_Gamepad *g = last_pad ? SDL_GetGamepadFromID(last_pad) : NULL;
+    if (!g) return KEY_NAMES[action & 3];
+    for (int b = SDL_GAMEPAD_BUTTON_SOUTH; b <= SDL_GAMEPAD_BUTTON_NORTH; b++) {
+        if (pad_vk((SDL_GamepadButton)b) != vk_of_action[action & 3]) continue;
+        switch (SDL_GetGamepadButtonLabel(g, (SDL_GamepadButton)b)) {
+        case SDL_GAMEPAD_BUTTON_LABEL_A: return "A";
+        case SDL_GAMEPAD_BUTTON_LABEL_B: return "B";
+        case SDL_GAMEPAD_BUTTON_LABEL_X: return "X";
+        case SDL_GAMEPAD_BUTTON_LABEL_Y: return "Y";
+        case SDL_GAMEPAD_BUTTON_LABEL_CIRCLE: *ps = 0; return NULL;
+        case SDL_GAMEPAD_BUTTON_LABEL_CROSS: *ps = 1; return NULL;
+        case SDL_GAMEPAD_BUTTON_LABEL_TRIANGLE: *ps = 2; return NULL;
+        case SDL_GAMEPAD_BUTTON_LABEL_SQUARE: *ps = 3; return NULL;
+        default: break;
+        }
+    }
+    *ps = action;
+    return NULL;
+}
+
 // D-pad buttons, the left stick and the triggers are recomputed from the pad state each time,
 // so several pads and the stick can be used together without one releasing the other's keys.
 static void pad_refresh(void) {
@@ -194,6 +224,7 @@ void host_pump_events(void) {
             break;
         }
         case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+            last_pad = e.gbutton.which;
             if (e.gbutton.button == SDL_GAMEPAD_BUTTON_GUIDE) menu_requested = 1;
             break;
         case SDL_EVENT_GAMEPAD_REMOVED: {
@@ -207,6 +238,7 @@ void host_pump_events(void) {
         case SDL_EVENT_KEY_DOWN:
         case SDL_EVENT_KEY_UP: {
             int vk = vk_of(e.key.scancode), down = e.type == SDL_EVENT_KEY_DOWN;
+            if (down) last_pad = 0;
             if (e.key.scancode == SDL_SCANCODE_RETURN && (e.key.mod & SDL_KMOD_ALT) && down) {
                 cfg.fullscreen = !cfg.fullscreen;
                 settings_save();

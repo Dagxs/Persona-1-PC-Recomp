@@ -6,6 +6,7 @@ void host_window_create(const char *title);
 void host_message_box(const char *caption, const char *text);
 void host_pump_events(void);
 int host_key_down(int vk);
+const char *host_button_label(int action, int *ps);   // see host.c
 // present a 32-bit XRGB frame of w x h pixels (scaled to the window)
 void host_present(const uint32_t *pixels, int w, int h);
 
