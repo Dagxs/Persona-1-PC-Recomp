@@ -30,6 +30,7 @@ struct dd_surface {
 };
 
 struct dd_surface *dd_surface_of(uint32_t obj);
+struct dd_surface *dd_new_surface(uint32_t w, uint32_t h);
 extern struct dd_surface *dd_primary;
 const uint32_t *dd_palette_entries(void *pal);
 void dd_present(struct dd_surface *s);

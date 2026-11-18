@@ -157,7 +157,10 @@ void dump_frame_if_requested(const uint32_t *px, int w, int h) {
 // ---------------------------------------------------------------- audio
 static SDL_AudioDeviceID audio_dev;
 static int audio_state;   // 0 untried, 1 ok, -1 off
-SDL_AudioStream *host_audio_stream(int channels, int rate) {
+static SDL_AudioStream *audio_stream(SDL_AudioFormat fmt, int channels, int rate);
+SDL_AudioStream *host_audio_stream(int channels, int rate) { return audio_stream(SDL_AUDIO_S16, channels, rate); }
+SDL_AudioStream *host_audio_stream_f32(int channels, int rate) { return audio_stream(SDL_AUDIO_F32, channels, rate); }
+static SDL_AudioStream *audio_stream(SDL_AudioFormat fmt, int channels, int rate) {
     if (!audio_state) {
         audio_state = -1;
         if (!getenv("P1_NOAUDIO") && (!headless || getenv("P1_AUDIO")) && SDL_InitSubSystem(SDL_INIT_AUDIO)) {
@@ -166,7 +169,7 @@ SDL_AudioStream *host_audio_stream(int channels, int rate) {
             else fprintf(stderr, "audio: %s\n", SDL_GetError());
         }
     }
-    SDL_AudioSpec src = { SDL_AUDIO_S16, channels, rate };
+    SDL_AudioSpec src = { fmt, channels, rate };
     SDL_AudioSpec dst;
     if (audio_state == 1) SDL_GetAudioDeviceFormat(audio_dev, &dst, NULL);
     else dst = src;

@@ -369,3 +369,8 @@ DEF(DirectDrawCreate) {
 struct dd_surface *dd_surface_of(uint32_t obj) { return obj ? com_host(obj) : 0; }
 
 const struct impl DDRAW_IMPL[] = { API("DDRAW.DLL", DirectDrawCreate, 3), { 0 } };
+
+// an offscreen RGB565 surface for host-side producers (movie frames)
+struct dd_surface *dd_new_surface(uint32_t w, uint32_t h) {
+    return surface_new(w, h, &PF_565, 0x40u | DDSCAPS_SYSTEMMEMORY);   // DDSCAPS_OFFSCREENPLAIN
+}
