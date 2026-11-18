@@ -71,8 +71,20 @@ translation's docs (third_party/persona-translation/docs) usually describe the s
   English one is 62 KB). The conversation text is drawn in battle, by the battle text system
   (the PS1 translation's `vwf_btlp*`), not by the three MsgStep copies: that renderer still has
   to be found on the PC (trace FONT.BIN reads during a battle with the P1_WATCHREAD build).
+- Dungeon field script (PS1 `FieldRunScript`, decomp src/dng/field): the text inside the dungeon
+  packs `D0?/D??.BIN` (locked doors, party remarks...). Not a MsgStep copy. On the PC: loop read
+  `mov al,[esi]` at `0x42cdd3` (esi = read pointer), glyph path `test al,0x80` at `0x42d8a2`
+  (one byte -> `0x42d8a6`, two bytes -> `0x42d8c5`), FieldMsgPutGlyph `0x42da00` (ecx = code;
+  col `0x5e46e8`, line `0x5e46ec`, colour `0x5e474c`, upload rect `0x5e47b0`), FieldMsgClear
+  `0x42daa0`, FieldMsgNewLine `0x42db00`, FieldMsgTint `0x42dc80` (ecx cells, dl colour, stack
+  col/line/count, ret 0xc), FieldMsgPrintBytes `0x42dcd0`, FieldMsgPrint `0x42dd00`,
+  FieldMsgPrintCodes `0x42dda0`, FieldDecodeGlyph `0x428a70` (font pointer `0x5e110c`, glyph
+  image at `[0x5e107c]+0x6da5c`, ink 1, shadow 2 one pixel right and down), LoadImage
+  `0x54c380` (ecx rect, edx source), FieldFrame `0x422100`. English: runtime/vwf_field.c.
 - Still to do: TALK (demon conversations; files grow up to 40 %, the PC buffer size is not
   checked yet, and they may be drawn by the battle text system rather than these
-  interpreters), dungeon packs D00-D04 (54 boxes do not fit in place; the PS1 patch redirects
-  them to a spill area by matching a 24-byte fingerprint at box start), menus / items / skills
-  (small font, strings inside Persona.exe), battle text (BTLP), movie subtitles (done: runtime/subtitles.c, incl. the opening quote; the ending poems MV1E/MV25 are not).
+  interpreters), menus / items / skills (small font, strings inside Persona.exe), battle text
+  (BTLP), the dungeon E-file dialogue (MsgStep copies B/C, `vwf_on[1..2]`), map titles longer
+  than 10 characters (the PS1 patch's map-title hook), the ending poems (MV1E/MV25).
+  Done: story dialogue, movie subtitles and the opening quote. Written but not yet tested in game:
+  dungeon field-script boxes (vwf_field.c) and the dungeon / town dialogue copies (vwf_on[1..2]).

@@ -20,6 +20,61 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
 
+def dungeon(repo, cd, out):
+    """The dungeon packs D0?/D??.BIN (the field script's boxes, built in place by the repo's
+    dngpacks.py) and dng_spill.bin: the boxes whose English does not fit in place, matched at
+    runtime by the 24 bytes at the box head (runtime/vwf_field.c; the PS1 patch's dng/spill.asm).
+    Map-name fields only take the plain glyph-cell form: the longer pre-swapped VWF form needs the
+    PS1 patch's map-title hook, which the runtime does not have."""
+    import glob
+    import filecmp
+    for src in glob.glob(os.path.join(cd, 'D0?', 'D*.BIN')):
+        rel = os.path.relpath(src, cd)
+        dst = os.path.join(repo, 'data', 'psx', rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copyfile(src, dst)
+    import vwf_wrap
+    decomp = os.environ.get('P1_DECOMP', os.path.join(ROOT, '_decomp'))
+    if os.path.isdir(decomp):
+        vwf_wrap.DECOMP_BTLP = os.path.join(decomp, 'src', 'btlp')
+    import dngpacks
+    import dngspill
+    dngpacks.SCRIPT_MAX = 0
+    dngpacks.build()
+    n = 0
+    for src in glob.glob(os.path.join(repo, 'build', 'D0?', 'D*.BIN')):
+        rel = os.path.relpath(src, os.path.join(repo, 'build'))
+        orig = os.path.join(cd, rel)
+        if os.path.exists(orig) and not filecmp.cmp(src, orig, shallow=False):
+            os.makedirs(os.path.dirname(os.path.join(out, rel)), exist_ok=True)
+            shutil.copyfile(src, os.path.join(out, rel))
+            n += 1
+    dngspill.main()
+    # the generated assembly -> P1DS: magic, u32 entries, u32 texts; entries {24-byte prefix,
+    # u32 text index}; texts {u32 length, bytes}
+    entries, texts, cur = [], {}, None
+    for line in open(dngspill.OUT, encoding='utf-8'):
+        line = line.split(';')[0].strip()
+        if line.startswith('.word') and 'dng_spill_t' in line:
+            parts = [p.strip() for p in line[5:].split(',')]
+            entries.append((struct.pack('<6I', *(int(p, 16) for p in parts[:6])), int(parts[6][len('dng_spill_t'):])))
+        elif line.startswith('dng_spill_t') and line.endswith(':') and line[11:-1].isdigit():
+            cur = int(line[len('dng_spill_t'):-1])
+            texts[cur] = bytearray()
+        elif line.startswith('.byte') and cur is not None:
+            texts[cur] += bytes(int(p, 16) for p in line[5:].split(','))
+        elif line.startswith('dng_spill_end'):
+            cur = None
+    blob = bytearray(b'P1DS') + struct.pack('<II', len(entries), len(texts))
+    for pre, t in entries:
+        blob += pre + struct.pack('<I', t)
+    for k in range(len(texts)):
+        blob += struct.pack('<I', len(texts[k])) + texts[k]
+    with open(os.path.join(out, 'dng_spill.bin'), 'wb') as f:
+        f.write(blob)
+    print(f'dungeon: {n} pack files, {len(entries)} spill entries, {len(texts)} spill texts')
+
+
 def main():
     repo = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'third_party', 'persona-translation'))
     cd = os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, 'data', 'cd'))
@@ -53,6 +108,8 @@ def main():
         blob += bytes(glyphs.get(c, [0] * 16))
     with open(os.path.join(out, 'vwf_font.bin'), 'wb') as f:
         f.write(blob)
+
+    dungeon(repo, cd, out)
 
     # movie subtitles (the runtime draws them over the movies)
     subs = os.path.join(repo, 'translation', 'manual', 'fmv', 'subtitles.tsv')

@@ -24,8 +24,25 @@ uint32_t com_missing(const uint32_t *a) {
     rt_fatal("unimplemented COM method %s", host_current_api());
 }
 
+// freed objects (com_free) are reused, so a game that keeps creating and releasing objects
+// (a palette per texture upload, a filter graph per song) does not run out
+static uint32_t free_objs[4096];
+static int nfree_objs;
+
 uint32_t com_new(uint32_t vtable, void *host) {
-    uint32_t obj = hostobj_alloc(16);
+    uint32_t obj = nfree_objs ? free_objs[--nfree_objs] : hostobj_alloc(16);
+    if (getenv("P1_COMLOG")) {                     // debug: which kinds of object keep being created
+        static uint32_t vts[64], cnt[64]; static int nv, total;
+        int k = 0;
+        while (k < nv && vts[k] != vtable) k++;
+        if (k == nv && nv < 64) vts[nv++] = vtable;
+        if (k < 64) cnt[k]++;
+        if (++total % 256 == 0) {
+            fprintf(stderr, "com objects %d:", total);
+            for (int j = 0; j < nv; j++) fprintf(stderr, " %x=%u", vts[j], cnt[j]);
+            fprintf(stderr, "\n");
+        }
+    }
     WR32(obj, vtable);
     WR32(obj + 8, 1);
     com_set_host(obj, host);
@@ -33,12 +50,32 @@ uint32_t com_new(uint32_t vtable, void *host) {
 }
 
 // host pointers are kept in a side table indexed by the id stored in the object
-static void *host_ptrs[4096];
+#define MAX_IDS 65536
+static void *host_ptrs[MAX_IDS];
 static uint32_t nhost = 1;
+static uint32_t free_ids[MAX_IDS];
+static int nfree_ids;
 void com_set_host(uint32_t obj, void *host) {
-    if (nhost == 4096) rt_fatal("too many COM objects");
-    host_ptrs[nhost] = host;
-    WR32(obj + 4, nhost++);
+    uint32_t id;
+    if (nfree_ids) id = free_ids[--nfree_ids];
+    else {
+        if (nhost == MAX_IDS) rt_fatal("too many COM objects");
+        id = nhost++;
+        if (getenv("P1_COMLOG") && nhost % 64 == 0) fprintf(stderr, "com ids in use: up to %u\n", nhost);
+    }
+    host_ptrs[id] = host;
+    WR32(obj + 4, id);
+}
+
+// an object whose last reference is gone: its id and memory go back to the pools
+void com_free(uint32_t obj) {
+    uint32_t id = RD32(obj + 4);
+    if (!id || id >= nhost || nfree_ids == MAX_IDS) return;
+    host_ptrs[id] = 0;
+    free_ids[nfree_ids++] = id;
+    WR32(obj, 0);
+    WR32(obj + 4, 0);
+    if (nfree_objs < (int)(sizeof free_objs / sizeof free_objs[0])) free_objs[nfree_objs++] = obj;
 }
 void *com_host(uint32_t obj) {
     uint32_t id = RD32(obj + 4);

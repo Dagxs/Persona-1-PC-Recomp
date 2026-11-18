@@ -507,6 +507,20 @@ PATCHES.update(dialogue_patches('VWF_ADV', 0x479522, 0x479535, 0x47954c, 0x47946
 PATCHES.update(dialogue_patches('VWF_B', 0x4211cb, 0x4211de, 0x4211f5, 0x42110c))
 PATCHES.update(dialogue_patches('VWF_C', 0x4e200b, 0x4e201e, 0x4e2035, 0x4e1f4c))
 
+# The dungeon field script (runtime/vwf_field.c). `test al, 0x80` in the interpreter (0x42d8a2) and
+# its string printers (0x42dd17, 0x42ddcc) decides between a one-byte and a two-byte glyph: with
+# English on, only 80-87 lead a two-byte glyph. FieldMsgPutGlyph (0x42da00) goes to the English
+# engine, and the interpreter's read at the top of its loop (0x42cdd3) checks for spilled boxes.
+FIELD_LEAD = ['{ uint8_t al = (uint8_t)EAX;',
+              '  vwf_field_two = al >= 0x80 && !(vwf_field_on && al >= 0x88);',
+              '  op_and(vwf_field_two ? 0x80u : 0u, 0x80u, 8); }']
+for a in (0x42d8a2, 0x42dd17, 0x42ddcc):
+    PATCHES[a] = FIELD_LEAD
+PATCHES[0x42da00] = ['if (vwf_field_on) { vwf_field_put(); ESP += 4u; return; }',
+                     'R[0] = (uint32_t)(RD32((uint32_t)(0x5e46e8u)));']
+PATCHES[0x42cdd3] = ['if (vwf_field_on) ESI = dng_spill(ESI);',
+                     'R[0] = (R[0] & 0xffffff00u) | (uint8_t)(RD8((uint32_t)(R[6])));']
+
 
 def main():
     exe, out = sys.argv[1], sys.argv[2]

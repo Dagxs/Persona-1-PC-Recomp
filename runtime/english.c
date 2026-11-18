@@ -52,9 +52,14 @@ void english_boot(void) {
     vwf_active = 1;
     extern void subtitles_load(void);
     subtitles_load();
-    // Only the story interpreter has verified English data so far. The dungeon (VWF_B) and
-    // overworld (VWF_C) copies are hooked too, but stay on the original code until theirs is.
+    // All three copies of the dialogue interpreter read the same story files (E0-E3), so all three
+    // need the English engine: story (ADV), dungeon (B) and town (C). P1_VWF=mask overrides (tests).
     extern int vwf_on[3];
-    vwf_on[0] = 1;
+    int mask = getenv("P1_VWF") ? atoi(getenv("P1_VWF")) : 7;
+    for (int k = 0; k < 3; k++) vwf_on[k] = (mask >> k) & 1;
+    // the dungeon field script's boxes (vwf_field.c): packs from data/en, long boxes spilled
+    extern void dng_spill_load(void);
+    dng_spill_load();
+    vwf_field_on = 1;
     if (rt_trace) fprintf(stderr, "English dialogue on (%s)\n", en);
 }

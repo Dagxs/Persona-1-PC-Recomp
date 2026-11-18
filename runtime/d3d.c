@@ -205,7 +205,7 @@ static uint32_t tex_Load(const uint32_t *a) {
     struct dd_surface *d = com_host(a[0]), *s = com_host(a[1]);
     uint32_t rows = d->h < s->h ? d->h : s->h, n = d->pitch < s->pitch ? d->pitch : s->pitch;
     for (uint32_t y = 0; y < rows; y++) memcpy(MEM + d->pixels + y * d->pitch, MEM + s->pixels + y * s->pitch, n);
-    d->palette = s->palette;
+    dd_set_palette(d, s->palette_obj);
     if (s->ck_src_set) { d->ck_src_set = 1; d->ck_src_lo = s->ck_src_lo; d->ck_src_hi = s->ck_src_hi; }
     return DD_OK;
 }

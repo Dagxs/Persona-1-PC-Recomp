@@ -5,6 +5,7 @@
 struct com_method { const char *name; api_fn fn; int nargs; };   // nargs includes `this`
 uint32_t com_vtable(const char *iface, const char *const *names, int n, const struct com_method *impl);
 uint32_t com_new(uint32_t vtable, void *host);
+void com_free(uint32_t obj);            // the last reference is gone: reuse its id and memory
 void com_set_host(uint32_t obj, void *host);
 void *com_host(uint32_t obj);
 uint32_t com_missing(const uint32_t *a);

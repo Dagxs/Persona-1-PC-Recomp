@@ -57,6 +57,19 @@ _Noreturn void rt_fatal(const char *fmt, ...) {
     fprintf(stderr, "\n");
     va_end(ap);
     fflush(stderr);
+    // also to crash.log beside the game: a launched game has no console to read
+    FILE *log = fopen("crash.log", "w");
+    if (log) {
+        va_start(ap, fmt);
+        fprintf(log, "FATAL: ");
+        vfprintf(log, fmt, ap);
+        va_end(ap);
+        fprintf(log, "\n  eax=%08x ecx=%08x edx=%08x ebx=%08x esp=%08x ebp=%08x esi=%08x edi=%08x\n  stack:",
+                EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI);
+        for (int k = 0; k < 12; k++) fprintf(log, " %08x", RD32(ESP + 4 * k));
+        fprintf(log, "\n  function: %08x\n", rt_fn_of[rt_tidx]);
+        fclose(log);
+    }
     exit(70);
 }
 

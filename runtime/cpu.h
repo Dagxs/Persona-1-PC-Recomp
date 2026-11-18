@@ -280,6 +280,10 @@ enum { VWF_ADV, VWF_B, VWF_C };   // the three copies of the MsgStep interpreter
 extern int vwf_active, vwf_two_byte;
 extern int vwf_on[3];   // per interpreter: English engine in use (off: the original code runs)
 void vwf_emit(int interp, int name_path);
+// the dungeon field script's message box (runtime/vwf_field.c)
+extern int vwf_field_on, vwf_field_two;
+void vwf_field_put(void);
+uint32_t dng_spill(uint32_t p);
 
 // direct call to a recompiled function: push the guest return address, run it
 #define CALL(f, ret) do { PUSH32(ret); f(); } while (0)

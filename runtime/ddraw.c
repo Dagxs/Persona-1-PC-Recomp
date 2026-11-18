@@ -162,7 +162,16 @@ static uint32_t surf_GetColorKey(const uint32_t *a) {
     WR32(a[2], s->ck_src_lo); WR32(a[2] + 4, s->ck_src_hi);
     return DD_OK;
 }
-static uint32_t surf_SetPalette(const uint32_t *a) { surf_of(a[0])->palette = a[1] ? com_host(a[1]) : 0; return DD_OK; }
+static uint32_t pal_Release(const uint32_t *a);
+// as in DirectDraw, a surface holds a reference to its palette
+void dd_set_palette(struct dd_surface *s, uint32_t pal) {
+    uint32_t old = s->palette_obj;
+    if (pal) { uint32_t r[1] = { pal }; com_addref(r); }
+    s->palette_obj = pal;
+    s->palette = pal ? com_host(pal) : 0;
+    if (old) { uint32_t r[1] = { old }; pal_Release(r); }
+}
+static uint32_t surf_SetPalette(const uint32_t *a) { dd_set_palette(surf_of(a[0]), a[1]); return DD_OK; }
 static uint32_t surf_SetClipper(const uint32_t *a) { (void)a; return DD_OK; }
 static uint32_t surf_GetDC(const uint32_t *a) { WR32(a[1], 0x20002u); return DD_OK; }
 static uint32_t surf_ReleaseDC(const uint32_t *a) { (void)a; return DD_OK; }
@@ -359,8 +368,14 @@ static uint32_t pal_GetEntries(const uint32_t *a) {
     return DD_OK;
 }
 const uint32_t *dd_palette_entries(void *pal) { return pal ? ((struct dd_palette *)pal)->entries : 0; }
+static uint32_t pal_Release(const uint32_t *a) {
+    if (!RD32(a[0] + 4)) return 0;                  // already freed
+    uint32_t n = com_release(a);
+    if (!n) { free(com_host(a[0])); com_free(a[0]); }
+    return n;
+}
 static const struct com_method PAL_IMPL[] = {
-    { "AddRef", com_addref, 1 }, { "Release", com_release, 1 }, { "SetEntries", pal_SetEntries, 5 },
+    { "AddRef", com_addref, 1 }, { "Release", pal_Release, 1 }, { "SetEntries", pal_SetEntries, 5 },
     { "GetEntries", pal_GetEntries, 5 }, { 0 } };
 
 // ---------------------------------------------------------------- IDirectDraw

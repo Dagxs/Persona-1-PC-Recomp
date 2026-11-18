@@ -27,6 +27,7 @@ struct dd_surface {
     int ck_src_set;
     uint32_t ck_src_lo, ck_src_hi;
     void *palette;
+    uint32_t palette_obj;       // the guest palette object, referenced while set
     // The screen (the flip chain's back buffer) is also kept on the host at hs times the size in
     // 32-bit colour: Direct3D draws, clears and blits land there, and Flip presents it.
     uint32_t *hi;
@@ -38,6 +39,7 @@ void dd_hires_fill(struct dd_surface *s, int32_t x0, int32_t y0, int32_t x1, int
                    int color, uint32_t xrgb, int depth);
 
 struct dd_surface *dd_surface_of(uint32_t obj);
+void dd_set_palette(struct dd_surface *s, uint32_t pal);   // holds a reference to the palette object
 struct dd_surface *dd_new_surface(uint32_t w, uint32_t h);
 extern struct dd_surface *dd_primary;
 const uint32_t *dd_palette_entries(void *pal);

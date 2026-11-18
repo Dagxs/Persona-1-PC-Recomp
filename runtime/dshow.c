@@ -49,6 +49,7 @@ struct graph {
     int state;
     uint64_t start_frame;       // frame the stream was (re)filled from
     uint64_t pos_frame;         // position while not running
+    uint64_t run_ms;            // without an audio stream (no audio device, tests): when it started
     SDL_AudioStream *stream;
     uint32_t event_handle;      // manual-reset event: signalled while an event is pending
     int complete_pending, complete_sent;
@@ -69,7 +70,11 @@ static void wide_to_guest_path(uint32_t w, char *out, size_t cap) {
 }
 
 static uint64_t position(struct graph *g) {
-    if (g->state != ST_RUNNING || !g->stream) return g->pos_frame;
+    if (g->state != ST_RUNNING) return g->pos_frame;
+    if (!g->stream) {                       // silent: the music still takes its time
+        uint64_t p = g->start_frame + (SDL_GetTicks() - g->run_ms) * (uint64_t)g->rate / 1000u;
+        return p > g->frames ? g->frames : p;
+    }
     int queued = SDL_GetAudioStreamQueued(g->stream);
     uint64_t q = queued > 0 ? (uint64_t)queued / (2u * (uint32_t)g->channels) : 0;
     uint64_t p = g->frames - (q > g->frames - g->start_frame ? g->frames - g->start_frame : q);
@@ -86,6 +91,9 @@ static void update(struct graph *g) {
 }
 
 static void refill(struct graph *g) {
+    g->start_frame = g->pos_frame;
+    g->run_ms = SDL_GetTicks();
+    if (!g->stream) return;
     SDL_ClearAudioStream(g->stream);
     if (g->pos_frame < g->frames)
         SDL_PutAudioStreamData(g->stream, g->pcm + g->pos_frame * (uint64_t)g->channels,
@@ -155,9 +163,12 @@ static uint32_t gb_RenderFile(const uint32_t *a) {
 }
 
 // ---------------------------------------------------------------- IMediaControl
+static int dslog = -1;
+#define DSLOG(...) do { if (dslog < 0) dslog = getenv("P1_DSLOG") != NULL; if (dslog) fprintf(stderr, __VA_ARGS__); } while (0)
 static uint32_t mc_Run(const uint32_t *a) {
     struct graph *g = G(a[0]);
-    if (g->state != ST_RUNNING && g->stream) {
+    DSLOG("ds %s Run state=%d pos=%llu/%llu\n", g->name, g->state, (unsigned long long)position(g), (unsigned long long)g->frames);
+    if (g->state != ST_RUNNING && g->rate) {
         refill(g);
         g->state = ST_RUNNING;
         g->complete_sent = 0;
@@ -173,6 +184,7 @@ static uint32_t mc_Pause(const uint32_t *a) {
 }
 static uint32_t mc_Stop(const uint32_t *a) {
     struct graph *g = G(a[0]);
+    DSLOG("ds %s Stop\n", g->name);
     g->pos_frame = position(g);
     if (g->stream) SDL_ClearAudioStream(g->stream);
     g->state = ST_STOPPED;
@@ -200,7 +212,9 @@ static int finished(void *p) {
 // Blocks (letting other guest threads run) until the graph has played to the end.
 static uint32_t me_WaitForCompletion(const uint32_t *a) {
     struct graph *g = G(a[0]);
+    DSLOG("ds %s Wait enter state=%d\n", g->name, g->state);
     int done = g->state == ST_RUNNING ? thread_wait(finished, g, a[1]) : 1;
+    DSLOG("ds %s Wait done=%d sent=%d\n", g->name, done, g->complete_sent);
     if (done && g->complete_sent) {
         g->complete_pending = 0;
         thread_event_set(g->event_handle, 0);
@@ -225,12 +239,13 @@ static uint32_t mp_get_CurrentPosition(const uint32_t *a) {
 static uint32_t mp_put_CurrentPosition(const uint32_t *a) {
     struct graph *g = G(a[0]);
     double t = arg_double(a, 1);
-    uint64_t f = t <= 0 ? 0 : (uint64_t)(t * g->rate);
+    DSLOG("ds %s put_CurrentPosition %.3f (of %.3f)\n", g->name, t, g->rate ? (double)g->frames / g->rate : 0.0);
+    uint64_t f = t <= 0 ? 0 : (uint64_t)(t * g->rate + 0.5);   // rounded: a seek to the end must reach it
     g->pos_frame = f > g->frames ? g->frames : f;
     g->complete_sent = 0;
     g->complete_pending = 0;
     thread_event_set(g->event_handle, 0);
-    if (g->state == ST_RUNNING && g->stream) refill(g);
+    if (g->state == ST_RUNNING) refill(g);
     return DD_OK;
 }
 static uint32_t mp_get_StopTime(const uint32_t *a) { return mp_get_Duration(a); }
@@ -247,7 +262,23 @@ static uint32_t ba_put_Volume(const uint32_t *a) {
 static uint32_t ba_get_Volume(const uint32_t *a) { WR32(a[1], (uint32_t)G(a[0])->volume); return DD_OK; }
 static uint32_t ba_put_Balance(const uint32_t *a) { (void)a; return DD_OK; }
 
-static uint32_t graph_Release(const uint32_t *a) { return com_release(a); }
+// The graph goes when all five of its interfaces are released (the game makes one per song played,
+// each holding the whole decoded song).
+static uint32_t graph_Release(const uint32_t *a) {
+    if (!RD32(a[0] + 4)) return 0;                  // already freed
+    struct graph *g = G(a[0]);
+    uint32_t n = com_release(a);
+    if (n || !g) return n;
+    uint32_t objs[5] = { g->obj_gb, g->obj_mc, g->obj_me, g->obj_mp, g->obj_ba };
+    for (int k = 0; k < 5; k++) if (RD32(objs[k] + 8)) return 0;
+    for (int k = 0; k < ngraphs; k++)
+        if (graphs[k] == g) { graphs[k] = graphs[--ngraphs]; break; }
+    for (int k = 0; k < 5; k++) com_free(objs[k]);
+    if (g->stream) SDL_DestroyAudioStream(g->stream);
+    free(g->pcm);
+    free(g);
+    return 0;
+}
 
 static const struct com_method GB_IMPL[] = {
     { "QueryInterface", gb_QueryInterface, 3 }, { "AddRef", com_addref, 1 }, { "Release", graph_Release, 1 },

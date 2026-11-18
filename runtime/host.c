@@ -159,6 +159,20 @@ static void scripted_keys(void) {
         }
     }
     extern uint32_t frame_counter;
+    // P1_AUTOTAP="first:vk:period" taps a key every `period` frames from `first` on (tests that
+    // click through dialogue)
+    static int tap_init; static unsigned tap_first, tap_vk, tap_period, tap_last = ~0u;
+    if (!tap_init) {
+        tap_init = 1;
+        const char *t = getenv("P1_AUTOTAP");
+        if (!t || sscanf(t, "%u:%u:%u", &tap_first, &tap_vk, &tap_period) != 3 || !tap_period) tap_period = 0;
+    }
+    if (tap_period && frame_counter >= tap_first && frame_counter != tap_last) {
+        tap_last = frame_counter;
+        unsigned ph = (frame_counter - tap_first) % tap_period;
+        if (ph == 0) { keys[tap_vk & 255] = 1; user32_post_key((int)tap_vk, 1); }
+        if (ph == 3) { keys[tap_vk & 255] = 0; user32_post_key((int)tap_vk, 0); }
+    }
     while (k < n && ev[k][0] <= frame_counter) {
         keys[ev[k][1] & 255] = (uint8_t)ev[k][2];
         user32_post_key((int)ev[k][1], (int)ev[k][2]);
