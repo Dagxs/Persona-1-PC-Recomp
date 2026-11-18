@@ -4,6 +4,7 @@
 //   C:\PERSONA\...   -> the save folder (P1_SAVE, default save)
 //   relative paths   -> the save folder (the game's working directory)
 #include "win32.h"
+#include "paths.h"
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -19,9 +20,8 @@
 static char cd_root[512], save_root[512];
 
 void files_init(void) {
-    const char *cd = getenv("P1_CD"), *sv = getenv("P1_SAVE");
-    snprintf(cd_root, sizeof cd_root, "%s", cd ? cd : "data/cd");
-    snprintf(save_root, sizeof save_root, "%s", sv ? sv : "save");
+    snprintf(cd_root, sizeof cd_root, "%s", path_cd());
+    snprintf(save_root, sizeof save_root, "%s", path_save());
     mkdir_host(save_root);
 }
 
@@ -45,7 +45,7 @@ static int map_path(const char *g, char *out, size_t cap, int *on_cd) {
             size_t k = 0;
             for (; rest[k] && k + 1 < sizeof up; k++) up[k] = (rest[k] >= 'a' && rest[k] <= 'z') ? (char)(rest[k] - 32) : rest[k];
             up[k] = 0;
-            snprintf(en, sizeof en, "%s/%s", getenv("P1_EN") ? getenv("P1_EN") : "data/en", up);
+            snprintf(en, sizeof en, "%s/%s", path_en(), up);
             struct stat st;
             if (stat(en, &st) == 0) snprintf(out, cap, "%s", en);
         }

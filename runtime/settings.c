@@ -1,5 +1,6 @@
 // Player settings, stored as key=value lines in save/settings.ini.
 #include "settings.h"
+#include "paths.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,8 +22,7 @@ static const struct { const char *key; int *val; int lo, hi; } FIELDS[] = {
 #define NFIELDS (int)(sizeof FIELDS / sizeof FIELDS[0])
 
 static void path_of(char *out, size_t cap) {
-    const char *sv = getenv("P1_SAVE");
-    snprintf(out, cap, "%s/settings.ini", sv ? sv : "save");
+    snprintf(out, cap, "%s", path_settings());
 }
 
 void settings_load(void) {
@@ -60,5 +60,5 @@ void settings_save(void) {
 // The English translation will ship as a folder of replacement data; until then it is absent.
 int settings_english_available(void) {
     struct stat st;
-    return stat("data/en", &st) == 0;
+    return stat(path_en(), &st) == 0;
 }

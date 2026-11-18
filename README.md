@@ -23,7 +23,17 @@ Needs Python 3 with `pefile` and `capstone`, clang, CMake, Ninja and SDL3
     cmake --build build
     play.bat                                                          # or ./build/persona1.exe
 
-`extract_disc.py` accepts a `.cue`, a raw `.bin` or an `.iso`.
+`extract_disc.py` accepts a `.cue`, a raw `.bin` or an `.iso`; `recomp.py` needs the extracted
+`Persona.exe`.
+
+## Installing the game files
+The disc never has to be mounted. The game reads its files from a `data/` folder: the one in the
+working directory or next to the program if present (as after the build steps above), otherwise
+a per-user folder (`%APPDATA%\Persona1Recomp\Persona1\` on Windows). If no game files are
+found, the launcher offers **Install from disc image...**: pick your `.cue`, `.bin` or `.iso` and
+it copies the disc's files there (about 630 MB) after checking that its `Persona.exe` is the
+version the build was made from. Without a window: `persona1.exe --install path/to/disc.cue`.
+Saves and `settings.ini` go in the matching `save/` folder.
 
 ## What works
 - The whole game boots and plays from the intro movies through the title screen into the story.
@@ -38,7 +48,7 @@ A settings screen opens before the game (Play / Quit), and the same menu opens i
 or the controller's Home/Guide button (the game pauses). Settings: fullscreen or window, window size
 1x-4x, internal resolution 1x-4x, fill-screen or pixel-perfect integer scaling, sharp or smooth
 filtering, VSync, controller layout (Western / Japanese), master volume, language (English once
-installed) and whether to show the launcher. They are saved in `save/settings.ini`.
+installed), English text speed and whether to show the launcher. They are saved in `save/settings.ini`.
 
 ## Controls
 Keyboard (the game's own defaults): numpad 8/2/4/6 move, S confirm, Z cancel, W / A the other face

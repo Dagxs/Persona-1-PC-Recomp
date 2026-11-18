@@ -1,9 +1,11 @@
 // Runtime core: guest memory, CPU state, dispatch of indirect branches, string ops, x87 helpers.
 #include "rt.h"
+#include "paths.h"
 #include "host.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <string.h>
 
 uint32_t R[8], DF, FS_BASE;
 uint32_t fk = K_LOGIC, fsz = 32, fa, fb, fr, fc, fraw;
@@ -142,10 +144,18 @@ void st_f80(uint32_t a, double v) {
 // ---------------------------------------------------------------- startup
 int main(int argc, char **argv) {
     rt_trace = getenv("P1_TRACE") ? atoi(getenv("P1_TRACE")) : 0;
+    if (argc == 3 && !strcmp(argv[1], "--install")) {          // install from a disc image, no window
+        paths_init();
+        char err[300];
+        printf("installing %s into %s ...\n", argv[2], path_data());
+        if (install_from_disc(argv[2], NULL, NULL, err, sizeof err)) { fprintf(stderr, "install failed: %s\n", err); return 1; }
+        printf("installed\n");
+        return 0;
+    }
     host_launcher();      // settings + launcher window (before the game is loaded)
     MEM = host_alloc_guest(MEM_SIZE);
     if (!MEM) rt_fatal("cannot reserve %u MB of guest memory", MEM_SIZE >> 20);
-    const char *exe = getenv("P1_EXE") ? getenv("P1_EXE") : "data/Persona.exe";
+    const char *exe = path_exe();
     load_image(exe);
     english_boot();       // Language = English: data/en overlay, script tables, dialogue engine
     build_code_map();

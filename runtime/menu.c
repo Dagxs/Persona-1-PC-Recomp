@@ -5,6 +5,7 @@
 #include "rt.h"
 #include "host.h"
 #include "settings.h"
+#include "paths.h"
 #include <SDL3/SDL.h>
 #include <stdio.h>
 #include <string.h>
@@ -29,7 +30,7 @@ static const char *label(int it, int launcher) {
     case IT_LANGUAGE: return "Language";
     case IT_TEXTSPEED: return "English text speed";
     case IT_LAUNCHER: return "Launcher at startup";
-    case IT_GO: return launcher ? "Play" : "Resume";
+    case IT_GO: return !launcher ? "Resume" : game_installed() ? "Play" : "Install from disc image...";
     default: return launcher ? "Quit" : "Quit game";
     }
 }
@@ -51,7 +52,7 @@ static void value(int it, char *out, size_t cap) {
         extern int english_on;
         int pending = !launcher_mode && (cfg.language == LANG_ENGLISH) != (english_on != 0);
         snprintf(out, cap, "%s%s", cfg.language == LANG_ENGLISH ? "English (story)" :
-                 settings_english_available() ? "Japanese" : "Japanese (English not installed)",
+                 settings_english_available() ? "Japanese" : "Japanese (no English data)",
                  pending ? "  - restart" : "");
         break;
     }
@@ -105,6 +106,49 @@ static void rect(float x, float y, float w, float h, uint8_t r, uint8_t g, uint8
 #define ROW_W 768.0f
 #define VAL_X (ROW_X + 352.0f)
 
+// ---------------------------------------------------------------- installing from a disc image
+static char install_msg[200];
+static char picked[1024];
+static volatile int pick_state;          // 0 idle, 1 waiting for the file dialog, 2 picked, 3 cancelled
+
+static void SDLCALL on_pick(void *user, const char *const *files, int filter) {
+    (void)user; (void)filter;
+    if (files && files[0]) { snprintf(picked, sizeof picked, "%s", files[0]); pick_state = 2; }
+    else pick_state = 3;
+}
+
+static void progress_screen(double done, double total, void *user) {
+    (void)user;
+    static Uint64 last;
+    Uint64 now = SDL_GetTicks();
+    if (now - last < 50 && done < total) return;
+    last = now;
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {}
+    SDL_SetRenderDrawColor(R_, 24, 12, 40, 255);
+    SDL_RenderClear(R_);
+    text(ROW_X, 280, 3, "Installing...", 240, 200, 120, 255);
+    double f = total > 0 ? done / total : 0;
+    rect(ROW_X, 340, ROW_W, 24, 60, 50, 90, 255);
+    rect(ROW_X, 340, (float)(ROW_W * f), 24, 150, 120, 220, 255);
+    char t[64];
+    snprintf(t, sizeof t, "%.0f / %.0f MB", done / 1048576.0, total / 1048576.0);
+    text(ROW_X, 380, 2, t, 220, 220, 230, 255);
+    SDL_RenderPresent(R_);
+}
+
+static void run_install(void) {
+    static const SDL_DialogFileFilter filters[] = { { "Persona disc image (.cue, .bin, .iso)", "cue;bin;iso" } };
+    pick_state = 1;
+    SDL_ShowOpenFileDialog(on_pick, NULL, SDL_GetRenderWindow(R_), filters, 1, NULL, false);
+    while (pick_state == 1) { SDL_Event e; SDL_WaitEventTimeout(&e, 50); }
+    if (pick_state != 2) { pick_state = 0; return; }
+    pick_state = 0;
+    char err[300] = "";
+    if (install_from_disc(picked, progress_screen, NULL, err, sizeof err)) snprintf(install_msg, sizeof install_msg, "Install failed: %s", err);
+    else snprintf(install_msg, sizeof install_msg, "Installed. Press Play.");
+}
+
 static void draw(int sel, int launcher, SDL_Texture *bg) {
     SDL_SetRenderDrawBlendMode(R_, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(R_, 0, 0, 0, 255);
@@ -122,6 +166,10 @@ static void draw(int sel, int launcher, SDL_Texture *bg) {
     if (launcher) {
         text(ROW_X, 64, 4, "MEGAMI IBUNROKU PERSONA", 240, 200, 120, 255);
         text(ROW_X, 112, 2, "PC recompilation - settings", 200, 200, 220, 255);
+        if (!game_installed())
+            text(ROW_X, 136, 1.5f, install_msg[0] ? install_msg
+                 : "Game not installed yet: choose Install and pick your disc image.",
+                 255, 200, 120, 255);
     } else {
         text(ROW_X, 96, 4, "OPTIONS", 240, 200, 120, 255);
         text(ROW_X, 144, 2, "Game paused", 200, 200, 220, 255);
@@ -221,6 +269,7 @@ int menu_run(int launcher) {
             }
             if (move) sel = (sel + move + IT_COUNT) % IT_COUNT;
             if (back && !launcher) result = 1;
+            if (act && sel == IT_GO && launcher && !game_installed()) { run_install(); act = 0; }
             if (act && sel == IT_GO) result = 1;
             else if (act && sel == IT_QUIT) result = 0;
             else if (act || dir) {

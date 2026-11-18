@@ -3,6 +3,7 @@
 // in Persona.exe are replaced by the rebuilt files' own tables (entries moved when the English
 // boxes grew), and the dialogue engine (vwf.c) is switched on with the English font.
 #include "rt.h"
+#include "paths.h"
 #include "settings.h"
 #include <stdlib.h>
 #include <string.h>
@@ -37,7 +38,7 @@ static int patch_table(const char *en_dir, const char *name, uint32_t table) {
 
 void english_boot(void) {
     if (cfg.language != LANG_ENGLISH || !settings_english_available()) return;
-    const char *en = getenv("P1_EN") ? getenv("P1_EN") : "data/en";
+    const char *en = path_en();
     char path[600];
     snprintf(path, sizeof path, "%s/vwf_font.bin", en);
     if (!vwf_load_font(path)) {

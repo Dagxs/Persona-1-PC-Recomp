@@ -2,6 +2,7 @@
 #include "rt.h"
 #include "host.h"
 #include "settings.h"
+#include "paths.h"
 #include <SDL3/SDL.h>
 #include <stdlib.h>
 #include <string.h>
@@ -101,8 +102,11 @@ void host_apply_settings(int resize) {
 
 // The launcher: shown before the game starts unless turned off (or P1_HEADLESS / P1_NOLAUNCHER).
 void host_launcher(void) {
+    paths_init();
     settings_load();
-    if (getenv("P1_HEADLESS") || getenv("P1_NOLAUNCHER") || !cfg.show_launcher) return;
+    if (getenv("P1_HEADLESS")) return;
+    // the launcher always opens when the game files are missing: it is where they get installed
+    if ((getenv("P1_NOLAUNCHER") || !cfg.show_launcher) && game_installed()) return;
     host_window_create("");
     if (!menu_run(1)) exit(0);
 }
