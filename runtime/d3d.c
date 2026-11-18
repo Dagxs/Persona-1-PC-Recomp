@@ -337,16 +337,34 @@ static void raster_tri(const struct vtx *v0, const struct vtx *v1, const struct 
     if (cy1 > (int32_t)t->h) cy1 = (int32_t)t->h;
     if (cx0 < 0) cx0 = 0;
     if (cy0 < 0) cy0 = 0;
-    float minx = fminf(v0->x, fminf(v1->x, v2->x)), maxx = fmaxf(v0->x, fmaxf(v1->x, v2->x));
-    float miny = fminf(v0->y, fminf(v1->y, v2->y)), maxy = fmaxf(v0->y, fmaxf(v1->y, v2->y));
-    int32_t x0 = (int32_t)ceilf(minx - 0.5f), x1 = (int32_t)ceilf(maxx - 0.5f);
-    int32_t y0 = (int32_t)ceilf(miny - 0.5f), y1 = (int32_t)ceilf(maxy - 0.5f);
+    // Exact coverage: vertices snapped to 1/16 pixel, integer edge functions and the top-left
+    // fill rule, so a pixel on an edge shared by two triangles belongs to exactly one of them.
+    // Pixels are sampled at their centres (x + 0.5): sprites magnified 2x then map cleanly to texels.
+    if (area < 0) { const struct vtx *tmp = v1; v1 = v2; v2 = tmp; area = -area; }
+    int64_t X0 = (int64_t)lrintf(v0->x * 16.0f), Y0 = (int64_t)lrintf(v0->y * 16.0f);
+    int64_t X1 = (int64_t)lrintf(v1->x * 16.0f), Y1 = (int64_t)lrintf(v1->y * 16.0f);
+    int64_t X2 = (int64_t)lrintf(v2->x * 16.0f), Y2 = (int64_t)lrintf(v2->y * 16.0f);
+    int64_t A = (X1 - X0) * (Y2 - Y0) - (X2 - X0) * (Y1 - Y0);
+    if (A <= 0) return;
+    // edge k is opposite vertex k: E0 on v1->v2, E1 on v2->v0, E2 on v0->v1
+    int64_t ex[3] = { X1, X2, X0 }, ey[3] = { Y1, Y2, Y0 }, fx[3] = { X2, X0, X1 }, fy[3] = { Y2, Y0, Y1 };
+    int64_t bias[3];
+    for (int k = 0; k < 3; k++) {
+        int64_t dx = fx[k] - ex[k], dy = fy[k] - ey[k];
+        int topleft = (dy == 0 && dx > 0) || dy < 0;
+        bias[k] = topleft ? 0 : -1;
+    }
+    int64_t minX = X0 < X1 ? (X0 < X2 ? X0 : X2) : (X1 < X2 ? X1 : X2);
+    int64_t maxX = X0 > X1 ? (X0 > X2 ? X0 : X2) : (X1 > X2 ? X1 : X2);
+    int64_t minY = Y0 < Y1 ? (Y0 < Y2 ? Y0 : Y2) : (Y1 < Y2 ? Y1 : Y2);
+    int64_t maxY = Y0 > Y1 ? (Y0 > Y2 ? Y0 : Y2) : (Y1 > Y2 ? Y1 : Y2);
+    int32_t x0 = (int32_t)(minX >> 4), x1 = (int32_t)(maxX >> 4) + 1;
+    int32_t y0 = (int32_t)(minY >> 4), y1 = (int32_t)(maxY >> 4) + 1;
     if (x0 < cx0) x0 = cx0;
     if (y0 < cy0) y0 = cy0;
     if (x1 > cx1) x1 = cx1;
     if (y1 > cy1) y1 = cy1;
     if (x0 >= x1 || y0 >= y1) return;
-
     struct dd_surface *tex = dev->rs[1] && dev->rs[1] < ntextures ? textures[dev->rs[1]] : 0;
     int gouraud = dev->rs[9] != 1;          // D3DSHADE_FLAT = 1
     int zen = dev->rs[7] && t->zbuf, zwrite = dev->rs[14];
@@ -357,25 +375,25 @@ static void raster_tri(const struct vtx *v0, const struct vtx *v1, const struct 
     float aref = (float)(dev->rs[24] & 255) / 255.0f;
     uint32_t afunc = dev->rs[25];
 
-    float inv = 1.0f / area;
+    float inv = 1.0f / (float)A;
     // perspective-correct attributes: interpolate attr*w and w (w = rhw)
     const struct vtx *V[3] = { v0, v1, v2 };
     float wq[3], uq[3], vq[3];
     for (int k = 0; k < 3; k++) { wq[k] = V[k]->w; uq[k] = V[k]->u * wq[k]; vq[k] = V[k]->v * wq[k]; }
 
     for (int32_t y = y0; y < y1; y++) {
-        float py = (float)y + 0.5f;
+        int64_t PY = (int64_t)y * 16 + 8;     // sample at the pixel centre
         uint16_t *row = (uint16_t *)(MEM + t->pixels + (uint32_t)y * t->pitch);
         uint16_t *zrow = zen || zwrite ? (t->zbuf ? (uint16_t *)(MEM + t->zbuf->pixels + (uint32_t)y * t->zbuf->pitch) : 0) : 0;
         for (int32_t x = x0; x < x1; x++) {
-            float px = (float)x + 0.5f;
-            float e0 = ((v2->x - v1->x) * (py - v1->y) - (v2->y - v1->y) * (px - v1->x)) * inv;
-            float e1 = ((v0->x - v2->x) * (py - v2->y) - (v0->y - v2->y) * (px - v2->x)) * inv;
-            float e2 = 1.0f - e0 - e1;
-            if (e0 < 0 || e1 < 0 || e2 < 0) {
-                // top-left rule approximation: accept tiny negative values on shared edges
-                if (e0 < -1e-6f || e1 < -1e-6f || e2 < -1e-6f) continue;
+            int64_t PX = (int64_t)x * 16 + 8, E[3];
+            int inside = 1;
+            for (int k = 0; k < 3; k++) {
+                E[k] = (fx[k] - ex[k]) * (PY - ey[k]) - (fy[k] - ey[k]) * (PX - ex[k]);
+                if (E[k] + bias[k] < 0) { inside = 0; break; }
             }
+            if (!inside) continue;
+            float e0 = (float)E[0] * inv, e1 = (float)E[1] * inv, e2 = (float)E[2] * inv;
             float z = e0 * v0->z + e1 * v1->z + e2 * v2->z;
             uint16_t zi = (uint16_t)(z <= 0 ? 0 : z >= 1 ? 65535 : (int)(z * 65535.0f));
             if (zen && zrow && !zpass(dev->rs[23], zi, zrow[x])) continue;
@@ -440,7 +458,7 @@ static uint32_t dev_DrawPrimitive(const uint32_t *a) {
     for (uint32_t k = 0; k < n; k++) read_vtx(p + 32u * k, &vbuf[k]);
     static int dbg = -1;
     if (dbg < 0) dbg = getenv("P1_VTX") ? atoi(getenv("P1_VTX")) : 0;
-    if (dbg && frame_counter >= 200) {
+    if (dbg && frame_counter >= 200 && (!getenv("P1_VTX_X") || (vbuf[0].x >= atof(getenv("P1_VTX_X")) - 40 && vbuf[0].x <= atof(getenv("P1_VTX_X")) + 40 && vbuf[0].y < 80))) {
         dbg--;
         struct dd_surface *tx = dev->rs[1] && dev->rs[1] < ntextures ? textures[dev->rs[1]] : 0;
         uint32_t nz = 0;
@@ -449,6 +467,28 @@ static uint32_t dev_DrawPrimitive(const uint32_t *a) {
                 tx ? tx->w : 0, tx ? tx->h : 0, tx ? tx->fmt.bpp : 0, nz, dev->rs[21], dev->rs[27], dev->rs[41], dev->rs[7]);
         for (uint32_t k = 0; k < n && k < 4; k++)
             fprintf(stderr, "  v%u: %.1f %.1f z %.3f w %.3f c %08x uv %.3f %.3f\n", k, vbuf[k].x, vbuf[k].y, vbuf[k].z, vbuf[k].w, RD32(p + 32u * k + 16), vbuf[k].u, vbuf[k].v);
+    }
+    if (getenv("P1_PICK") && frame_counter == 850) {     // log draws covering a screen point
+        float px = 475, py = 50, x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+        for (uint32_t k = 0; k < n; k++) { x0 = fminf(x0, vbuf[k].x); x1 = fmaxf(x1, vbuf[k].x); y0 = fminf(y0, vbuf[k].y); y1 = fmaxf(y1, vbuf[k].y); }
+        if (px >= x0 && px <= x1 && py >= y0 && py <= y1) {
+            fprintf(stderr, "pick: prim %u n %u tex %u blend %u ab %u sb %u db %u ck %u at %.0f,%.0f-%.0f,%.0f\n", prim, n, dev->rs[1], dev->rs[21], dev->rs[27], dev->rs[19], dev->rs[20], dev->rs[41], x0, y0, x1, y1);
+            for (uint32_t k = 0; k < n; k++) fprintf(stderr, "   %.1f %.1f c %08x uv %.4f %.4f\n", vbuf[k].x, vbuf[k].y, RD32(p + 32u * k + 16), vbuf[k].u, vbuf[k].v);
+        }
+    }
+    static int dumped;
+    if (getenv("P1_TEXDUMP") && !dumped && frame_counter >= 800 && dev->rs[1] == (uint32_t)atoi(getenv("P1_TEXDUMP"))) {
+        dumped = 1;
+        struct dd_surface *tx = textures[dev->rs[1]];
+        FILE *f = fopen("build/tex.bin", "wb");
+        const uint32_t *pal = dd_palette_entries(tx->palette);
+        uint32_t hdr[4] = { tx->w, tx->h, tx->pitch, tx->fmt.bpp };
+        fwrite(hdr, 4, 4, f);
+        uint32_t zero[256] = { 0 };
+        fwrite(pal ? pal : zero, 4, 256, f);
+        fwrite(MEM + tx->pixels, 1, tx->pitch * tx->h, f);
+        fclose(f);
+        fprintf(stderr, "dumped texture %u (ck %d %x-%x)\n", dev->rs[1], tx->ck_src_set, tx->ck_src_lo, tx->ck_src_hi);
     }
     draw(prim, vbuf, n, 0, 0);
     return DD_OK;
