@@ -96,3 +96,36 @@ void host_present(const uint32_t *pixels, int w, int h) {
     SDL_RenderTexture(renderer, frame, NULL, NULL);
     SDL_RenderPresent(renderer);
 }
+
+// ---------------------------------------------------------------- test hooks
+// P1_SHOT=dir writes every P1_SHOT_EVERY-th presented frame (default 30) as dir/fNNNNN.bmp;
+// P1_FRAMES=n exits after n presented frames.
+void dump_frame_if_requested(const uint32_t *px, int w, int h) {
+    static int init, every = 30, limit;
+    static const char *dir;
+    static uint32_t n;
+    if (!init) {
+        init = 1;
+        dir = getenv("P1_SHOT");
+        if (getenv("P1_SHOT_EVERY")) every = atoi(getenv("P1_SHOT_EVERY"));
+        if (getenv("P1_FRAMES")) limit = atoi(getenv("P1_FRAMES"));
+        if (every < 1) every = 1;
+    }
+    n++;
+    if (dir && n % (uint32_t)every == 0) {
+        char path[512];
+        snprintf(path, sizeof path, "%s/f%05u.bmp", dir, n);
+        FILE *f = fopen(path, "wb");
+        if (f) {
+            uint32_t sz = 54u + (uint32_t)(w * h * 4);
+            uint8_t hdr[54] = { 'B', 'M' };
+            memcpy(hdr + 2, &sz, 4); hdr[10] = 54; hdr[14] = 40;
+            memcpy(hdr + 18, &w, 4); int32_t nh = -h; memcpy(hdr + 22, &nh, 4);
+            hdr[26] = 1; hdr[28] = 32;
+            fwrite(hdr, 1, 54, f);
+            fwrite(px, 4, (size_t)(w * h), f);
+            fclose(f);
+        }
+    }
+    if (limit && n >= (uint32_t)limit) { fprintf(stderr, "P1_FRAMES reached (%u frames)\n", n); exit(0); }
+}

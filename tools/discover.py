@@ -113,7 +113,14 @@ class Discovery:
         out = []
         p = tbl
         limit = n if n is not None else 1024
-        while len(out) < limit:
+        # MSVC's memcpy tail tables leave the first slot(s) unused: skip them when code pointers follow
+        lead = 0
+        while lead < 3 and not self.img.in_code(self.img.u32(p)) and self.img.in_code(self.img.u32(p + 4)):
+            self.table_bytes.update(range(p, p + 4))
+            out.append(None)
+            p += 4
+            lead += 1
+        while len(out) < limit + lead:
             if not self.img.in_code(p):
                 break
             t = self.img.u32(p)
@@ -124,7 +131,7 @@ class Discovery:
             out.append(t)
             self.table_bytes.update(range(p, p + 4))
             p += 4
-        return out
+        return [t for t in out if t is not None]
 
     # ------------------------------------------------------------ recursive descent
     def explore(self, starts):
