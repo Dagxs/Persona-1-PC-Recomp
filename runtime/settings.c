@@ -7,7 +7,7 @@
 #include <sys/stat.h>
 
 struct settings cfg = {
-    .fullscreen = 0, .window_scale = 2, .render_scale = 2, .integer_scale = 0, .smooth = 0, .vsync = 1,
+    .fullscreen = 0, .window_scale = 2, .render_scale = 1, .integer_scale = 0, .smooth = 0, .vsync = 1,
     .pad_japanese = 0, .volume = 100, .language = LANG_JAPANESE, .text_speed = 1, .show_launcher = 1,
 };
 

@@ -85,7 +85,7 @@ movie subtitles.
 - [x] DirectDraw + Direct3D software renderer on SDL3
 - [x] DirectShow: MP3 music/effects, MPEG-1 movies
 - [x] Gamepads, launcher, in-game options
-- [ ] Internal resolution above 1x: implemented, quality and speed not yet checked
+- [x] Internal resolution 1x-4x (multithreaded rasterizer; 2x runs near full speed, 3x/4x need a fast CPU)
 - [x] English story dialogue (variable-width font), shipped as a patch applied on startup
 - [ ] English: faster printing (two letters per frame), menus, battles, names, dungeons, subtitles
 - [ ] Play-testing beyond the opening

@@ -249,6 +249,25 @@ void dump_frame_if_requested(const uint32_t *px, int w, int h) {
         if (every < 1) every = 1;
     }
     n++;
+    static int fps = -1;                    // P1_FPS=1: report presented frames per second
+    static Uint64 t0;
+    static uint32_t n0;
+    if (fps < 0) fps = getenv("P1_FPS") != NULL;
+    if (fps) {
+        Uint64 now = SDL_GetTicks();
+        if (!t0) { t0 = now; n0 = n; }
+        if (now - t0 >= 2000) {
+            extern uint64_t raster_stat[4];
+            double fr = (double)(n - n0);
+            fprintf(stderr, "fps: frame %u, %.1f fps; per frame: fast %.0f px / %.0f tris, general %.0f px / %.0f tris\n", n,
+                    fr * 1000.0 / (double)(now - t0), raster_stat[0] / fr, raster_stat[2] / fr, raster_stat[1] / fr, raster_stat[3] / fr);
+            extern uint64_t raster_ticks;
+            fprintf(stderr, "     rasterizer %.1f ms per frame\n", (double)raster_ticks * 1000.0 / (double)SDL_GetPerformanceFrequency() / fr);
+            raster_ticks = 0;
+            memset(raster_stat, 0, sizeof raster_stat);
+            t0 = now; n0 = n;
+        }
+    }
     if (dir && n % (uint32_t)every == 0) {
         char path[512];
         snprintf(path, sizeof path, "%s/f%05u.bmp", dir, n);

@@ -5,6 +5,7 @@
 #include "com.h"
 #include "ddraw.h"
 #include "host.h"
+#include <SDL3/SDL.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -285,6 +286,46 @@ static void read_vtx(uint32_t p, struct vtx *o) {
 }
 
 // texel as ARGB floats; returns 0 when the texel is colour-keyed out
+// raw texel -> 0xRRGGBB for the fast path: one table per 16-bit format (built once), or the
+// texture's palette for 8-bit textures (rebuilt per draw: the game changes palettes often)
+static uint32_t *texel_lut(struct dd_surface *t) {
+    static uint32_t pal[256];
+    if (t->fmt.pal8) {
+        const uint32_t *e = dd_palette_entries(t->palette);
+        for (int k = 0; k < 256; k++) {
+            uint32_t p = e ? e[k] : (uint32_t)k * 0x010101u;   // PALETTEENTRY r, g, b
+            pal[k] = ((p & 255u) << 16) | (p & 0xff00u) | ((p >> 16) & 255u);
+        }
+        return pal;
+    }
+    static struct { uint32_t r, g, b, a; uint32_t *lut; } cache[4];
+    for (int k = 0; k < 4; k++)
+        if (cache[k].lut && cache[k].r == t->fmt.r && cache[k].g == t->fmt.g && cache[k].b == t->fmt.b && cache[k].a == t->fmt.a)
+            return cache[k].lut;
+    int slot = 0;
+    while (slot < 3 && cache[slot].lut) slot++;
+    uint32_t *lut = cache[slot].lut ? cache[slot].lut : malloc(65536 * sizeof *lut);
+    uint32_t m[3] = { t->fmt.r, t->fmt.g, t->fmt.b };
+    uint32_t am = t->fmt.a;
+    for (uint32_t v = 0; v < 65536; v++) {
+        uint32_t out = 0xff000000u;                      // alpha in the top byte (opaque without an alpha mask)
+        if (am) {
+            int sh = __builtin_ctz(am);
+            uint32_t mx = am >> sh, c = (v & am) >> sh;
+            out = ((c * 255u + mx / 2) / mx) << 24;
+        }
+        for (int k = 0; k < 3; k++) {
+            if (!m[k]) continue;
+            int sh = __builtin_ctz(m[k]);
+            uint32_t mx = m[k] >> sh, c = (v & m[k]) >> sh;
+            out |= ((c * 255u + mx / 2) / mx) << (16 - 8 * k);
+        }
+        lut[v] = out;
+    }
+    cache[slot].r = t->fmt.r; cache[slot].g = t->fmt.g; cache[slot].b = t->fmt.b; cache[slot].a = t->fmt.a; cache[slot].lut = lut;
+    return lut;
+}
+
 static int sample(struct dd_surface *t, float u, float v, float *o) {
     int wrap = 1;
     int32_t x = (int32_t)floorf(u * (float)t->w), y = (int32_t)floorf(v * (float)t->h);
@@ -300,6 +341,12 @@ static int sample(struct dd_surface *t, float u, float v, float *o) {
         uint32_t e = pal ? pal[px & 255] : px * 0x010101u;     // PALETTEENTRY: r, g, b, flags
         o[1] = (float)(e & 255) / 255.0f; o[2] = (float)((e >> 8) & 255) / 255.0f; o[3] = (float)((e >> 16) & 255) / 255.0f;
         o[0] = 1.0f;
+        return 1;
+    }
+    if (t->fmt.bpp == 16) {                              // through the format's lookup table
+        uint32_t c = texel_lut(t)[px & 0xffffu];
+        o[0] = (float)(c >> 24) * (1.0f / 255.0f); o[1] = (float)((c >> 16) & 255) * (1.0f / 255.0f);
+        o[2] = (float)((c >> 8) & 255) * (1.0f / 255.0f); o[3] = (float)(c & 255) * (1.0f / 255.0f);
         return 1;
     }
     const struct pixfmt *f = &t->fmt;
@@ -355,27 +402,234 @@ static int target_fb(struct fb *f) {
     return 1;
 }
 
-static void raster_tri(const struct vtx *v0, const struct vtx *v1, const struct vtx *v2) {
+// Everything one triangle needs while its rows are drawn (read-only, shared by the worker threads).
+struct tri {
     struct fb F;
-    if (!target_fb(&F)) return;
+    const struct vtx *v0, *v1, *v2;
+    int32_t x0, x1;
+    int64_t ex[3], ey[3], fx[3], fy[3], bias[3], stepx[3];
+    float inv, wq[3], uq[3], vq[3];
+    int affine, gouraud, zen, zwrite, ablend, atest;
+    uint32_t sb, db, tb, afunc, zfunc;
+    float aref;
+    struct dd_surface *tex;
+    // fast path
+    const uint32_t *lut;
+    int ck, pal8;
+    uint32_t ck_lo, ck_hi;
+    float dudx, dvdx;
+};
+
+static void row_edges(const struct tri *t, int32_t y, int64_t *E) {
+    int64_t PY = (int64_t)y * 16 + 8, PX = (int64_t)t->x0 * 16 + 8;
+    for (int k = 0; k < 3; k++) E[k] = (t->fx[k] - t->ex[k]) * (PY - t->ey[k]) - (t->fy[k] - t->ey[k]) * (PX - t->ex[k]);
+}
+
+// flat textured, white, no blend / alpha test / depth: texels straight from a lookup table
+static void rows_fast(const struct tri *t, int32_t ya, int32_t yb) {
+    const struct dd_surface *tex = t->tex;
+    int32_t tw = (int32_t)tex->w, th = (int32_t)tex->h;
+    for (int32_t y = ya; y < yb; y++) {
+        int64_t E[3];
+        row_edges(t, y, E);
+        float u = ((float)E[0] * t->uq[0] + (float)E[1] * t->uq[1] + (float)E[2] * t->uq[2]) * t->inv;
+        float v = ((float)E[0] * t->vq[0] + (float)E[1] * t->vq[1] + (float)E[2] * t->vq[2]) * t->inv;
+        uint16_t *row16 = t->F.p16 ? t->F.p16 + (size_t)y * t->F.pitch : 0;
+        uint32_t *row32 = t->F.p32 ? t->F.p32 + (size_t)y * t->F.pitch : 0;
+        for (int32_t x = t->x0; x < t->x1; x++, E[0] += t->stepx[0], E[1] += t->stepx[1], E[2] += t->stepx[2], u += t->dudx, v += t->dvdx) {
+            if (E[0] + t->bias[0] < 0 || E[1] + t->bias[1] < 0 || E[2] + t->bias[2] < 0) continue;
+            int32_t tx = (int32_t)floorf(u * (float)tw) % tw, ty = (int32_t)floorf(v * (float)th) % th;
+            if (tx < 0) tx += tw;
+            if (ty < 0) ty += th;
+            uint32_t trow = tex->pixels + (uint32_t)ty * tex->pitch;
+            uint32_t raw = t->pal8 ? RD8(trow + (uint32_t)tx) : RD16(trow + 2u * (uint32_t)tx);
+            if (t->ck && raw >= t->ck_lo && raw <= t->ck_hi) continue;
+            uint32_t c = t->lut[raw];
+            if (row32) row32[x] = c;
+            else row16[x] = (uint16_t)(((c >> 8) & 0xf800u) | ((c >> 5) & 0x07e0u) | ((c >> 3) & 0x1fu));
+        }
+    }
+}
+
+// everything else: Gouraud colour, perspective, texture blend modes, alpha test, blending, depth
+static void rows_general(const struct tri *t, int32_t ya, int32_t yb) {
+    const struct vtx *v0 = t->v0, *v1 = t->v1, *v2 = t->v2;
+    struct dd_surface *tex = t->tex;
+    for (int32_t y = ya; y < yb; y++) {
+        int64_t E[3];
+        row_edges(t, y, E);
+        uint16_t *row16 = t->F.p16 ? t->F.p16 + (size_t)y * t->F.pitch : 0;
+        uint32_t *row32 = t->F.p32 ? t->F.p32 + (size_t)y * t->F.pitch : 0;
+        uint16_t *zrow = t->F.z ? t->F.z + (size_t)y * t->F.zpitch : 0;
+        for (int32_t x = t->x0; x < t->x1; x++, E[0] += t->stepx[0], E[1] += t->stepx[1], E[2] += t->stepx[2]) {
+            if (E[0] + t->bias[0] < 0 || E[1] + t->bias[1] < 0 || E[2] + t->bias[2] < 0) continue;
+            float e0 = (float)E[0] * t->inv, e1 = (float)E[1] * t->inv, e2 = (float)E[2] * t->inv;
+            uint16_t zi = 0;
+            if (t->zen || t->zwrite) {
+                float z = e0 * v0->z + e1 * v1->z + e2 * v2->z;
+                zi = (uint16_t)(z <= 0 ? 0 : z >= 1 ? 65535 : (int)(z * 65535.0f));
+                if (t->zen && !zpass(t->zfunc, zi, zrow[x])) continue;
+            }
+            float c[4];   // a r g b
+            if (t->gouraud) {
+                c[0] = e0 * v0->a + e1 * v1->a + e2 * v2->a; c[1] = e0 * v0->r + e1 * v1->r + e2 * v2->r;
+                c[2] = e0 * v0->g + e1 * v1->g + e2 * v2->g; c[3] = e0 * v0->b + e1 * v1->b + e2 * v2->b;
+            } else { c[0] = v0->a; c[1] = v0->r; c[2] = v0->g; c[3] = v0->b; }
+            if (tex) {
+                float u, vv;
+                if (t->affine) { u = e0 * t->uq[0] + e1 * t->uq[1] + e2 * t->uq[2]; vv = e0 * t->vq[0] + e1 * t->vq[1] + e2 * t->vq[2]; }
+                else {
+                    float w = e0 * t->wq[0] + e1 * t->wq[1] + e2 * t->wq[2];
+                    u = (e0 * t->uq[0] + e1 * t->uq[1] + e2 * t->uq[2]) / w; vv = (e0 * t->vq[0] + e1 * t->vq[1] + e2 * t->vq[2]) / w;
+                }
+                float tx[4];
+                if (!sample(tex, u, vv, tx)) continue;
+                switch (t->tb) {
+                case 1: case 7: c[0] = tx[0]; c[1] = tx[1]; c[2] = tx[2]; c[3] = tx[3]; break;        // DECAL / COPY
+                case 3: c[1] = c[1] * (1 - tx[0]) + tx[1] * tx[0]; c[2] = c[2] * (1 - tx[0]) + tx[2] * tx[0];
+                        c[3] = c[3] * (1 - tx[0]) + tx[3] * tx[0]; break;                            // DECALALPHA
+                case 8: c[1] += tx[1]; c[2] += tx[2]; c[3] += tx[3]; break;                           // ADD
+                case 4: c[0] *= tx[0]; c[1] *= tx[1]; c[2] *= tx[2]; c[3] *= tx[3]; break;          // MODULATEALPHA
+                default:                                                                             // MODULATE
+                    if (tex->fmt.a) c[0] = tx[0];
+                    c[1] *= tx[1]; c[2] *= tx[2]; c[3] *= tx[3]; break;
+                }
+            }
+            if (t->atest) {
+                int pass = 1;
+                switch (t->afunc) { case 1: pass = 0; break; case 2: pass = c[0] < t->aref; break; case 3: pass = c[0] == t->aref; break;
+                case 4: pass = c[0] <= t->aref; break; case 5: pass = c[0] > t->aref; break; case 6: pass = c[0] != t->aref; break;
+                case 7: pass = c[0] >= t->aref; break; default: break; }
+                if (!pass) continue;
+            }
+            if (t->ablend) {
+                float dst[4];
+                dst[0] = 1.0f;
+                if (row32) {
+                    uint32_t d = row32[x];
+                    dst[1] = (float)((d >> 16) & 255) / 255.0f; dst[2] = (float)((d >> 8) & 255) / 255.0f; dst[3] = (float)(d & 255) / 255.0f;
+                } else {
+                    uint16_t d = row16[x];
+                    dst[1] = (float)(d >> 11) / 31.0f; dst[2] = (float)((d >> 5) & 63) / 63.0f; dst[3] = (float)(d & 31) / 31.0f;
+                }
+                float out[4];
+                for (int k = 1; k < 4; k++) out[k] = c[k] * blend_factor(t->sb, c, dst, k) + dst[k] * blend_factor(t->db, c, dst, k);
+                c[1] = out[1]; c[2] = out[2]; c[3] = out[3];
+            }
+            if (row32) row32[x] = to888(c[1], c[2], c[3]);
+            else row16[x] = to565(c[1], c[2], c[3]);
+            if (t->zwrite) zrow[x] = zi;
+        }
+    }
+}
+
+// ---------------------------------------------------------------- worker threads
+// A triangle's rows are split across worker threads; each triangle finishes before the next one
+// starts, so drawing order is unchanged. Triangles come microseconds apart while a frame is drawn,
+// so idle workers spin briefly for the next job before going to sleep (a semaphore wake-up costs
+// more than a typical triangle). Between frames they sleep.
+#define MAX_WORKERS 6
+static int nworkers = -1;
+static SDL_Thread *workers[MAX_WORKERS];
+static SDL_Semaphore *wake[MAX_WORKERS];
+static SDL_AtomicInt sleeping[MAX_WORKERS];
+static SDL_AtomicInt job_gen, job_left;
+static struct { const struct tri *t; int fast; int32_t y0, y1, parts; } job;
+
+static void job_part(int k) {
+    int32_t h = job.y1 - job.y0;
+    int32_t ya = job.y0 + (int32_t)((int64_t)h * k / job.parts);
+    int32_t yb = job.y0 + (int32_t)((int64_t)h * (k + 1) / job.parts);
+    if (job.fast) rows_fast(job.t, ya, yb); else rows_general(job.t, ya, yb);
+}
+
+static int worker_main(void *arg) {
+    int k = (int)(intptr_t)arg;
+    int last = 0;
+    for (;;) {
+        int spins = 0, g;
+        while ((g = SDL_GetAtomicInt(&job_gen)) == last) {
+            if (++spins < 20000) { SDL_CPUPauseInstruction(); continue; }
+            // go to sleep; re-check after announcing it so a job posted meanwhile is not missed
+            SDL_SetAtomicInt(&sleeping[k], 1);
+            if (SDL_GetAtomicInt(&job_gen) != last) {
+                if (!SDL_CompareAndSwapAtomicInt(&sleeping[k], 1, 0)) SDL_WaitSemaphore(wake[k]);   // a wake-up is on its way
+                break;
+            }
+            SDL_WaitSemaphore(wake[k]);
+            spins = 0;
+        }
+        last = SDL_GetAtomicInt(&job_gen);
+        job_part(k + 1);                    // part 0 is the calling thread's
+        SDL_AddAtomicInt(&job_left, -1);
+    }
+    return 0;
+}
+
+static void start_workers(void) {
+    int cores = SDL_GetNumLogicalCPUCores();
+    nworkers = cores > 1 ? cores - 1 : 0;
+    if (nworkers > MAX_WORKERS) nworkers = MAX_WORKERS;
+    if (getenv("P1_RASTER_THREADS")) nworkers = atoi(getenv("P1_RASTER_THREADS"));
+    if (nworkers < 0) nworkers = 0;
+    if (nworkers > MAX_WORKERS) nworkers = MAX_WORKERS;
+    for (int k = 0; k < nworkers; k++) {
+        wake[k] = SDL_CreateSemaphore(0);
+        workers[k] = SDL_CreateThread(worker_main, "raster", (void *)(intptr_t)k);
+        if (!workers[k]) { nworkers = k; break; }
+    }
+}
+
+uint64_t raster_stat[4];   // P1_FPS diagnostics: [fast px, general px, fast tris, general tris]
+static void run_rows(const struct tri *t, int fast, int32_t y0, int32_t y1) {
+    if (nworkers < 0) start_workers();
+    int64_t pixels = (int64_t)(y1 - y0) * (t->x1 - t->x0);
+    raster_stat[fast ? 0 : 1] += (uint64_t)pixels;
+    raster_stat[fast ? 2 : 3]++;
+    int parts = nworkers + 1;
+    if (pixels < 2048 || parts < 2 || y1 - y0 < parts) {
+        if (fast) rows_fast(t, y0, y1); else rows_general(t, y0, y1);
+        return;
+    }
+    job.t = t; job.fast = fast; job.y0 = y0; job.y1 = y1; job.parts = parts;
+    SDL_SetAtomicInt(&job_left, nworkers);
+    SDL_AddAtomicInt(&job_gen, 1);                  // publishes the job (atomics are full barriers)
+    for (int k = 0; k < nworkers; k++)
+        if (SDL_CompareAndSwapAtomicInt(&sleeping[k], 1, 0)) SDL_SignalSemaphore(wake[k]);
+    job_part(0);
+    while (SDL_GetAtomicInt(&job_left) > 0) SDL_CPUPauseInstruction();
+}
+
+static void raster_tri_body(const struct vtx *v0, const struct vtx *v1, const struct vtx *v2);
+uint64_t raster_ticks;    // P1_FPS diagnostics: performance-counter ticks spent rasterizing
+static void raster_tri(const struct vtx *v0, const struct vtx *v1, const struct vtx *v2) {
+    uint64_t t0 = SDL_GetPerformanceCounter();
+    raster_tri_body(v0, v1, v2);
+    raster_ticks += SDL_GetPerformanceCounter() - t0;
+}
+static void raster_tri_body(const struct vtx *v0, const struct vtx *v1, const struct vtx *v2) {
+    struct tri T;
+    struct tri *t = &T;
+    if (!target_fb(&t->F)) return;
     float area = (v1->x - v0->x) * (v2->y - v0->y) - (v2->x - v0->x) * (v1->y - v0->y);
     if (area == 0.0f) return;
     uint32_t cull = dev->rs[22];
     // screen y points down, so a positive area is clockwise as seen on screen
     if (cull == 2 && area > 0) return;      // D3DCULL_CW
     if (cull == 3 && area < 0) return;      // D3DCULL_CCW
-    const int S = F.s;
+    const int S = t->F.s;
     struct viewport *vp = dev->vp;
     int32_t cx0 = vp ? vp->x * S : 0, cy0 = vp ? vp->y * S : 0;
-    int32_t cx1 = vp ? (vp->x + vp->w) * S : F.w, cy1 = vp ? (vp->y + vp->h) * S : F.h;
-    if (cx1 > F.w) cx1 = F.w;
-    if (cy1 > F.h) cy1 = F.h;
+    int32_t cx1 = vp ? (vp->x + vp->w) * S : t->F.w, cy1 = vp ? (vp->y + vp->h) * S : t->F.h;
+    if (cx1 > t->F.w) cx1 = t->F.w;
+    if (cy1 > t->F.h) cy1 = t->F.h;
     if (cx0 < 0) cx0 = 0;
     if (cy0 < 0) cy0 = 0;
     // Exact coverage: vertices snapped to 1/16 pixel (of the target resolution), integer edge
     // functions stepped per pixel, and the top-left fill rule, so a pixel on an edge shared by two
     // triangles belongs to exactly one of them. Pixels are sampled at their centres (x + 0.5).
     if (area < 0) { const struct vtx *tmp = v1; v1 = v2; v2 = tmp; }
+    t->v0 = v0; t->v1 = v1; t->v2 = v2;
     const float k16 = 16.0f * (float)S;
     int64_t X0 = (int64_t)lrintf(v0->x * k16), Y0 = (int64_t)lrintf(v0->y * k16);
     int64_t X1 = (int64_t)lrintf(v1->x * k16), Y1 = (int64_t)lrintf(v1->y * k16);
@@ -384,11 +638,11 @@ static void raster_tri(const struct vtx *v0, const struct vtx *v1, const struct 
     if (A <= 0) return;
     // edge k is opposite vertex k: E0 on v1->v2, E1 on v2->v0, E2 on v0->v1
     int64_t ex[3] = { X1, X2, X0 }, ey[3] = { Y1, Y2, Y0 }, fx[3] = { X2, X0, X1 }, fy[3] = { Y2, Y0, Y1 };
-    int64_t bias[3], stepx[3];
     for (int k = 0; k < 3; k++) {
+        t->ex[k] = ex[k]; t->ey[k] = ey[k]; t->fx[k] = fx[k]; t->fy[k] = fy[k];
         int64_t dx = fx[k] - ex[k], dy = fy[k] - ey[k];
-        bias[k] = ((dy == 0 && dx > 0) || dy < 0) ? 0 : -1;
-        stepx[k] = -dy * 16;
+        t->bias[k] = ((dy == 0 && dx > 0) || dy < 0) ? 0 : -1;
+        t->stepx[k] = -dy * 16;
     }
     int64_t minX = X0 < X1 ? (X0 < X2 ? X0 : X2) : (X1 < X2 ? X1 : X2);
     int64_t maxX = X0 > X1 ? (X0 > X2 ? X0 : X2) : (X1 > X2 ? X1 : X2);
@@ -401,92 +655,43 @@ static void raster_tri(const struct vtx *v0, const struct vtx *v1, const struct 
     if (x1 > cx1) x1 = cx1;
     if (y1 > cy1) y1 = cy1;
     if (x0 >= x1 || y0 >= y1) return;
+    t->x0 = x0; t->x1 = x1;
 
-    struct dd_surface *tex = dev->rs[1] && dev->rs[1] < ntextures ? textures[dev->rs[1]] : 0;
-    int gouraud = dev->rs[9] != 1;          // D3DSHADE_FLAT = 1
-    int zen = dev->rs[7] && F.z, zwrite = dev->rs[14] && F.z;
-    int ablend = dev->rs[27];
-    uint32_t sb = dev->rs[19], db = dev->rs[20], tb = dev->rs[21];
-    if (sb == 12) { sb = 5; db = 6; } else if (sb == 13) { sb = 6; db = 5; }
-    int atest = dev->rs[15];
-    float aref = (float)(dev->rs[24] & 255) / 255.0f;
-    uint32_t afunc = dev->rs[25], zfunc = dev->rs[23];
+    t->tex = dev->rs[1] && dev->rs[1] < ntextures ? textures[dev->rs[1]] : 0;
+    t->gouraud = dev->rs[9] != 1;          // D3DSHADE_FLAT = 1
+    t->zen = dev->rs[7] && t->F.z;
+    t->zwrite = dev->rs[14] && t->F.z;
+    t->ablend = dev->rs[27];
+    t->sb = dev->rs[19]; t->db = dev->rs[20]; t->tb = dev->rs[21];
+    if (t->sb == 12) { t->sb = 5; t->db = 6; } else if (t->sb == 13) { t->sb = 6; t->db = 5; }
+    t->atest = dev->rs[15];
+    t->aref = (float)(dev->rs[24] & 255) / 255.0f;
+    t->afunc = dev->rs[25]; t->zfunc = dev->rs[23];
 
-    float inv = 1.0f / (float)A;
+    t->inv = 1.0f / (float)A;
     // perspective-correct attributes: interpolate attr*w and w (w = rhw); flat 2D quads (equal w)
     // skip the per-pixel divide
     const struct vtx *V[3] = { v0, v1, v2 };
-    float wq[3], uq[3], vq[3];
-    for (int k = 0; k < 3; k++) { wq[k] = V[k]->w; uq[k] = V[k]->u * wq[k]; vq[k] = V[k]->v * wq[k]; }
-    int affine = wq[0] == wq[1] && wq[1] == wq[2];
-    if (affine) for (int k = 0; k < 3; k++) { uq[k] = V[k]->u; vq[k] = V[k]->v; }
+    for (int k = 0; k < 3; k++) { t->wq[k] = V[k]->w; t->uq[k] = V[k]->u * t->wq[k]; t->vq[k] = V[k]->v * t->wq[k]; }
+    t->affine = t->wq[0] == t->wq[1] && t->wq[1] == t->wq[2];
+    if (t->affine) for (int k = 0; k < 3; k++) { t->uq[k] = V[k]->u; t->vq[k] = V[k]->v; }
 
-    for (int32_t y = y0; y < y1; y++) {
-        int64_t PY = (int64_t)y * 16 + 8, PX = (int64_t)x0 * 16 + 8, E[3];
-        for (int k = 0; k < 3; k++) E[k] = (fx[k] - ex[k]) * (PY - ey[k]) - (fy[k] - ey[k]) * (PX - ex[k]);
-        uint16_t *row16 = F.p16 ? F.p16 + (size_t)y * F.pitch : 0;
-        uint32_t *row32 = F.p32 ? F.p32 + (size_t)y * F.pitch : 0;
-        uint16_t *zrow = F.z ? F.z + (size_t)y * F.zpitch : 0;
-        for (int32_t x = x0; x < x1; x++, E[0] += stepx[0], E[1] += stepx[1], E[2] += stepx[2]) {
-            if (E[0] + bias[0] < 0 || E[1] + bias[1] < 0 || E[2] + bias[2] < 0) continue;
-            float e0 = (float)E[0] * inv, e1 = (float)E[1] * inv, e2 = (float)E[2] * inv;
-            uint16_t zi = 0;
-            if (zen || zwrite) {
-                float z = e0 * v0->z + e1 * v1->z + e2 * v2->z;
-                zi = (uint16_t)(z <= 0 ? 0 : z >= 1 ? 65535 : (int)(z * 65535.0f));
-                if (zen && !zpass(zfunc, zi, zrow[x])) continue;
-            }
-            float c[4];   // a r g b
-            if (gouraud) {
-                c[0] = e0 * v0->a + e1 * v1->a + e2 * v2->a; c[1] = e0 * v0->r + e1 * v1->r + e2 * v2->r;
-                c[2] = e0 * v0->g + e1 * v1->g + e2 * v2->g; c[3] = e0 * v0->b + e1 * v1->b + e2 * v2->b;
-            } else { c[0] = v0->a; c[1] = v0->r; c[2] = v0->g; c[3] = v0->b; }
-            if (tex) {
-                float u, vv;
-                if (affine) { u = e0 * uq[0] + e1 * uq[1] + e2 * uq[2]; vv = e0 * vq[0] + e1 * vq[1] + e2 * vq[2]; }
-                else {
-                    float w = e0 * wq[0] + e1 * wq[1] + e2 * wq[2];
-                    u = (e0 * uq[0] + e1 * uq[1] + e2 * uq[2]) / w; vv = (e0 * vq[0] + e1 * vq[1] + e2 * vq[2]) / w;
-                }
-                float tx[4];
-                if (!sample(tex, u, vv, tx)) continue;
-                switch (tb) {
-                case 1: case 7: c[0] = tx[0]; c[1] = tx[1]; c[2] = tx[2]; c[3] = tx[3]; break;        // DECAL / COPY
-                case 3: c[1] = c[1] * (1 - tx[0]) + tx[1] * tx[0]; c[2] = c[2] * (1 - tx[0]) + tx[2] * tx[0];
-                        c[3] = c[3] * (1 - tx[0]) + tx[3] * tx[0]; break;                            // DECALALPHA
-                case 8: c[1] += tx[1]; c[2] += tx[2]; c[3] += tx[3]; break;                           // ADD
-                case 4: c[0] *= tx[0]; c[1] *= tx[1]; c[2] *= tx[2]; c[3] *= tx[3]; break;          // MODULATEALPHA
-                default:                                                                             // MODULATE
-                    if (tex->fmt.a) c[0] = tx[0];
-                    c[1] *= tx[1]; c[2] *= tx[2]; c[3] *= tx[3]; break;
-                }
-            }
-            if (atest) {
-                int pass = 1;
-                switch (afunc) { case 1: pass = 0; break; case 2: pass = c[0] < aref; break; case 3: pass = c[0] == aref; break;
-                case 4: pass = c[0] <= aref; break; case 5: pass = c[0] > aref; break; case 6: pass = c[0] != aref; break;
-                case 7: pass = c[0] >= aref; break; default: break; }
-                if (!pass) continue;
-            }
-            if (ablend) {
-                float dst[4];
-                dst[0] = 1.0f;
-                if (row32) {
-                    uint32_t d = row32[x];
-                    dst[1] = (float)((d >> 16) & 255) / 255.0f; dst[2] = (float)((d >> 8) & 255) / 255.0f; dst[3] = (float)(d & 255) / 255.0f;
-                } else {
-                    uint16_t d = row16[x];
-                    dst[1] = (float)(d >> 11) / 31.0f; dst[2] = (float)((d >> 5) & 63) / 63.0f; dst[3] = (float)(d & 31) / 31.0f;
-                }
-                float out[4];
-                for (int k = 1; k < 4; k++) out[k] = c[k] * blend_factor(sb, c, dst, k) + dst[k] * blend_factor(db, c, dst, k);
-                c[1] = out[1]; c[2] = out[2]; c[3] = out[3];
-            }
-            if (row32) row32[x] = to888(c[1], c[2], c[3]);
-            else row16[x] = to565(c[1], c[2], c[3]);
-            if (zwrite) zrow[x] = zi;
-        }
+    // the fast path covers what the game draws most: sprites, backgrounds, text boxes
+    int white = 1;
+    for (int k = 0; k < 3; k++) if (V[k]->r < 0.999f || V[k]->g < 0.999f || V[k]->b < 0.999f) white = 0;
+    struct dd_surface *tex = t->tex;
+    if (tex && t->affine && white && !t->ablend && !t->atest && !t->zen && !t->zwrite &&
+        (t->tb == 1 || t->tb == 2 || t->tb == 4 || t->tb == 7) && (tex->fmt.pal8 || tex->fmt.bpp == 16)) {
+        t->lut = texel_lut(tex);
+        t->ck = dev->rs[41] && tex->ck_src_set;
+        t->ck_lo = tex->ck_src_lo; t->ck_hi = tex->ck_src_hi;
+        t->pal8 = tex->fmt.pal8;
+        t->dudx = t->dvdx = 0;
+        for (int k = 0; k < 3; k++) { t->dudx += (float)t->stepx[k] * t->inv * t->uq[k]; t->dvdx += (float)t->stepx[k] * t->inv * t->vq[k]; }
+        run_rows(t, 1, y0, y1);
+        return;
     }
+    run_rows(t, 0, y0, y1);
 }
 
 static void draw(uint32_t prim, struct vtx *v, uint32_t n, const uint16_t *idx, uint32_t nidx) {
