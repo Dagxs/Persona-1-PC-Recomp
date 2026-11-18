@@ -275,5 +275,8 @@ void rt_unimpl(uint32_t addr, const char *what);
 extern volatile int rt_switch_pending;
 void rt_yield(void);
 // backward branches: let another guest thread run if one is waiting
-#define POLL() do { if (rt_switch_pending) rt_yield(); } while (0)
-#define POLLAT(a) do { rt_fn_of[rt_tidx] = (a); if (rt_switch_pending) rt_yield(); } while (0)
+// Like an OS scheduler, a thread keeps the CPU for a time slice before a waiting thread gets it;
+// switching at every back-edge exposes races the game never hits on Windows.
+void rt_preempt(void);
+#define POLL() do { if (rt_switch_pending) rt_preempt(); } while (0)
+#define POLLAT(a) do { rt_fn_of[rt_tidx] = (a); if (rt_switch_pending) rt_preempt(); } while (0)

@@ -27,6 +27,10 @@ struct gevent { int manual, signaled; };
 volatile uint32_t rt_fn_of[64];
 _Thread_local int rt_tidx;
 static SDL_Mutex *gil;
+static uint64_t slice_start;     // when the running thread got the CPU
+// Threads that woke from a timed sleep and are waiting for the lock to rejoin the run queue.
+// The running thread holds the lock while it runs guest code, so it must step aside for them.
+static SDL_AtomicInt wakers;
 static struct gthread *running;
 static struct gthread *queue_head, *queue_tail;
 static struct gthread *threads[64];
@@ -59,6 +63,8 @@ static uint32_t make_teb(uint32_t stack_top, uint32_t stack_size, uint32_t id) {
     return teb;
 }
 
+static void update_pending(void) { rt_switch_pending = queue_head != 0 || SDL_GetAtomicInt(&wakers) > 0; }
+
 static void enqueue(struct gthread *t) {
     t->next_wait = 0;
     if (queue_tail) queue_tail->next_wait = t; else queue_head = t;
@@ -72,17 +78,28 @@ static void switch_away(struct gthread *self) {
     if (!nx) rt_fatal("thread switch with an empty run queue");
     queue_head = nx->next_wait;
     if (!queue_head) queue_tail = 0;
-    rt_switch_pending = queue_head != 0;
+    update_pending();
     if (self) save(&self->st);
     running = nx;
     SDL_SignalCondition(nx->turn);
     if (!self) return;
     while (running != self) SDL_WaitCondition(self->turn, gil);
     load(&self->st);
+    slice_start = SDL_GetTicksNS();
+}
+
+#define SLICE_NS 10000000ull      // 10 ms, a typical Windows quantum
+void rt_preempt(void) {
+    if (SDL_GetTicksNS() - slice_start >= SLICE_NS) rt_yield();
 }
 
 void rt_yield(void) {
-    if (!queue_head) return;
+    if (SDL_GetAtomicInt(&wakers) > 0) {        // let woken threads take the lock and queue up
+        SDL_UnlockMutex(gil);
+        while (SDL_GetAtomicInt(&wakers) > 0) SDL_DelayNS(20000);
+        SDL_LockMutex(gil);
+    }
+    if (!queue_head) { update_pending(); return; }
     struct gthread *self = running;
     enqueue(self);
     switch_away(self);
@@ -99,16 +116,20 @@ static void block_tick(void) {
         struct gthread *nx = queue_head;
         queue_head = nx->next_wait;
         if (!queue_head) queue_tail = 0;
-        rt_switch_pending = queue_head != 0;
+        update_pending();
         running = nx;
         SDL_SignalCondition(nx->turn);
     } else running = 0;
     SDL_UnlockMutex(gil);
     SDL_Delay(1);
+    SDL_AddAtomicInt(&wakers, 1);
+    rt_switch_pending = 1;
     SDL_LockMutex(gil);
+    SDL_AddAtomicInt(&wakers, -1);
     if (!running) running = self;
     else { enqueue(self); while (running != self) SDL_WaitCondition(self->turn, gil); }
     load(&self->st);
+    slice_start = SDL_GetTicksNS();
     if (self->terminate) { self->finished = 1; SDL_UnlockMutex(gil); for (;;) SDL_Delay(1000); }
 }
 
@@ -148,6 +169,8 @@ static int watchdog(void *arg) {
         fprintf(stderr, "watchdog: running t%x;", running ? running->id : 0);
         for (int k = 0; k < nthreads; k++) fprintf(stderr, " t%x@%08x%s", threads[k]->id, rt_fn_of[threads[k]->id - 0x100],
                                                    threads[k]->finished ? "(done)" : "");
+        fprintf(stderr, " pending=%d queue:", rt_switch_pending);
+        for (struct gthread *q = queue_head; q; q = q->next_wait) fprintf(stderr, " t%x", q->id);
         const char *w = getenv("P1_WATCH");      // P1_WATCH=addr: also print a guest dword
         if (w) fprintf(stderr, " [%s]=%x", w, RD32((uint32_t)strtoul(w, 0, 16)));
         fputc('\n', stderr);
@@ -176,6 +199,7 @@ static int thread_main(void *arg) {
     SDL_LockMutex(gil);
     while (running != t) SDL_WaitCondition(t->turn, gil);
     load(&t->st);
+    slice_start = SDL_GetTicksNS();
     PUSH32(t->param);
     rt_call(t->entry, MAGIC_THREAD_END);      // the thread procedure returns to MAGIC_THREAD_END
     t->finished = 1;
