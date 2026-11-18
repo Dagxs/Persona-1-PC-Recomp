@@ -31,6 +31,10 @@ int vwf_button_action(uint32_t code, int two_byte) {
 int vwf_active;      // 1 while English is on (story dialogue)
 int vwf_on[3];       // per interpreter copy: 1 when its English data is installed and verified
 int vwf_two_byte;    // the glyph being drawn came from a two-byte code (for the rewind)
+// English names come from the small-font tables (one byte per glyph: A-Z 0xA6.., lowercase on rare
+// hiragana codes...). Where a name is copied into a message, its glyph code -> ASCII (0 = none):
+// install_english.py writes the table from the translation's own small-font encoder.
+uint8_t vwf_name_ascii[256];
 
 // ---------------------------------------------------------------- the interpreters' data
 // Each copy of the interpreter has its own FONT.BIN pointer, VRAM upload queue and map routine.
@@ -174,6 +178,10 @@ void vwf_emit(int interp, int name_path) {
             glyph_of((uint32_t)(unsigned char)*c + ENGLISH_BIAS, 0, &gs[ng]);
             adv += gs[ng++].adv;
         }
+    } else if (name_path && (vwf_two_byte ? code & 0x7ffu : code) < 256 && vwf_name_ascii[vwf_two_byte ? code & 0x7ffu : code]) {
+        glyph_of(vwf_name_ascii[vwf_two_byte ? code & 0x7ffu : code] + ENGLISH_BIAS, 0, &gs[0]);
+        adv = gs[0].adv;
+        ng = 1;
     } else {
         glyph_of(code, vwf_two_byte, &gs[0]);
         adv = gs[0].adv;

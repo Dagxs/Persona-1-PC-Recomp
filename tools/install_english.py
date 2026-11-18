@@ -183,6 +183,20 @@ def names(repo, out, img):
     for k, va, _ja in demons.records():
         if den.get(k):
             put(va, enc(den[k]))
+    # name_map.bin: the glyph code of each small-font character as it reaches the dialogue and
+    # battle text engines (names copied into a message: bytes 80-FF become two-byte codes of the
+    # same value) -> its ASCII, so English names are drawn at the English font's widths there
+    # (lowercase sits on rare hiragana codes, which the 16 px font would draw as kana)
+    nmap = bytearray(256)
+    import string
+    for ch in string.ascii_letters + string.digits + " .,!'-/:":
+        try:
+            code = toolbelt.smallfont_char(ch)
+        except SystemExit:
+            continue
+        if code < 256 and not nmap[code]:
+            nmap[code] = ord(ch)
+    open(os.path.join(out, 'name_map.bin'), 'wb').write(bytes(nmap))
     patches += descriptions(repo, img)
     blob = bytearray(b'P1NM') + struct.pack('<I', len(patches))
     for a, b in patches:

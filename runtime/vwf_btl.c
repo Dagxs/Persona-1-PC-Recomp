@@ -36,6 +36,8 @@ int vwf_glyph(int ch, const uint8_t **rows);
 #define F_QUEUE    0x5212d0u     // (ecx src, dx x, stack y, w, h; ret 0xc)
 #define F_LOADIMAGE 0x54c380u    // immediate (ecx rect, edx src)
 #define COLS 15
+#define NAME_BUFS     0x6391e0u  // the interpreter's name / number insert buffers (7 x 0x18)
+#define NAME_BUFS_END 0x639288u
 #define BOX_W (COLS * 16)
 #define INK 1
 #define SHADOW 2
@@ -132,6 +134,13 @@ void vwf_btl_glyph(void) {
     int two = 0;
     if (code >= 0x80 && code <= 0x87) { code = (code & 0x7f) << 8 | RD8(p + 1); next = p + 2; two = 1; }
 
+    // a name copied into the message's name buffers (0x52e6c0: 0x6391e0..): English names
+    extern uint8_t vwf_name_ascii[256];
+    if (p >= NAME_BUFS && p < NAME_BUFS_END && code < 256 && vwf_name_ascii[code]) {
+        code = vwf_name_ascii[code] + ENGLISH_BIAS;
+        two = 0;
+    }
+
     int cell = (int)RD32(st + T_CELL);
     if (cell < 0 || cell >= MAX_CELLS) { EAX = next; return; }   // the interpreter pages first
     int line = cell / COLS, col = cell % COLS;
@@ -205,7 +214,7 @@ void vwf_btl_str16(void) {
     memset(row, 0, sizeof row);
     if (!s16_ring) s16_ring = hostobj_alloc(S16_RING * 128);
     int pen = 0, n = 0;
-    while (n < COLS) {
+    for (;;) {                                        // retail stops at 15 glyphs; English at 15 cells
         uint32_t code = RD8(p);
         if (code == 0xff || code == 0xf5 || RD8(p + 1) == 0xf5) break;
         int two = 0;
@@ -216,7 +225,7 @@ void vwf_btl_str16(void) {
         int adv;
         if (!two && code >= 0x88 && code <= 0xfe) adv = vwf_glyph((int)code - ENGLISH_BIAS, &narrow);
         else { wide = RD32(FONT_BASE) + 0x1e0000u + (code & 0x7fffu) * 32u; adv = 16; }
-        if (pen + adv > BOX_W) break;
+        if (pen + adv > BOX_W || (wide && n >= COLS)) break;
         for (int r = 0; r < 16; r++) {
             uint32_t bits = wide ? (uint32_t)RD8(wide + 2u * r) << 8 | RD8(wide + 2u * r + 1) : (uint32_t)narrow[r] << 8;
             for (int b = 0; bits && b < 16; b++)

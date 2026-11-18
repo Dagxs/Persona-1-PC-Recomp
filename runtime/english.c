@@ -78,6 +78,12 @@ void english_boot(void) {
         if (!patch_table(en, SCRIPTS[k].file, SCRIPTS[k].table))
             fprintf(stderr, "English: %s/ADV/%s.BIN missing; that part of the script stays Japanese\n", en, SCRIPTS[k].file);
     int names = load_names(en);
+    {                                       // names in messages: small-font glyph codes -> ASCII
+        extern uint8_t vwf_name_ascii[256];
+        snprintf(path, sizeof path, "%s/name_map.bin", en);
+        FILE *f = fopen(path, "rb");
+        if (f) { if (fread(vwf_name_ascii, 1, 256, f) != 256) memset(vwf_name_ascii, 0, 256); fclose(f); }
+    }
     if (rt_trace) fprintf(stderr, "English names: %d\n", names);
     english_on = 1;
     vwf_active = 1;
