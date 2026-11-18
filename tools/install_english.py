@@ -124,7 +124,12 @@ def fake_slps(repo, exe):
         pc = va + DELTA - img.base
         if 0 <= pc < len(img.mem):
             d[va - SLPS_BASE] = img.mem[pc]
-    path = os.path.join(repo, 'data', 'psx', 'SLPS_005.00')
+    # the description pointer table holds PC addresses: back to PS1 ones
+    for va in range(0x8004AA7C, 0x8004B0CC, 4):
+        w = struct.unpack_from('<I', d, va - SLPS_BASE)[0]
+        if 0x5ce258 <= w < 0x5ce258 + 0x10000:
+            struct.pack_into('<I', d, va - SLPS_BASE, (w - DELTA) & 0xffffffff)
+    path =os.path.join(repo, 'data', 'psx', 'SLPS_005.00')
     open(path, 'wb').write(bytes(d))
     return img
 
@@ -178,11 +183,48 @@ def names(repo, out, img):
     for k, va, _ja in demons.records():
         if den.get(k):
             put(va, enc(den[k]))
+    patches += descriptions(repo, img)
     blob = bytearray(b'P1NM') + struct.pack('<I', len(patches))
     for a, b in patches:
         blob += struct.pack('<IH', a, len(b)) + b
     open(os.path.join(out, 'names.bin'), 'wb').write(bytes(blob))
     print(f'names: {len(patches)} names')
+
+
+def descriptions(repo, img):
+    """Skill and item descriptions (the one-line help of the menus): the repo's descs tool re-packs
+    the English into the PS1 string zone and rewrites the pointer table; Persona.exe holds the same
+    zone and a table of PC pointers (all four readers, the three dialogue copies and the battle
+    text system, draw English). Returns name-patch entries {PC address, bytes}."""
+    import descs
+    descs.build()
+    z0, z1 = descs.ZONE
+    t0, t1 = descs.TABLE
+    zone = bytearray(z1 - z0)
+    table = bytearray(t1 - t0)
+    org = None
+    for line in open(descs.OUT, encoding='utf-8'):
+        w = line.split(None, 1)
+        if not w or w[0].startswith(';'):
+            continue
+        args = [int(v.strip(), 0) for v in w[1].split(',')] if len(w) > 1 else []
+        if w[0] == '.org':
+            org = args[0]
+        elif w[0] == '.fill':
+            org += args[0]
+        elif w[0] == '.byte':
+            zone[org - z0:org - z0 + len(args)] = bytes(args)
+            org += len(args)
+        elif w[0] == '.word':
+            assert t0 <= org < t1 and z0 <= args[0] < z1, hex(org)
+            struct.pack_into('<I', table, org - t0, (args[0] + DELTA) & 0xffffffff)
+            org += 4
+    # the PC table must be the PS1 one moved by DELTA, or the layout is not the expected one
+    old = struct.unpack_from('<I', bytes(img.mem), t0 + DELTA - img.base)[0]
+    if old != z0 + DELTA:
+        print('descriptions: Persona.exe does not have the expected table; they stay Japanese')
+        return []
+    return [(z0 + DELTA, bytes(zone)), (t0 + DELTA, bytes(table))]
 
 
 def small_font(repo, cd, out):

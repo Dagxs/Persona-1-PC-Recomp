@@ -40,6 +40,7 @@ static int patch_table(const char *en_dir, const char *name, uint32_t table) {
 // written over the Japanese ones in the game's tables: "P1NM", u32 count, {u32 address, u16 length,
 // bytes}. Every address must lie in Persona.exe's image.
 static int load_names(const char *en_dir) {
+    static uint8_t b[65535];
     char path[600];
     snprintf(path, sizeof path, "%s/names.bin", en_dir);
     FILE *f = fopen(path, "rb");
@@ -50,7 +51,7 @@ static int load_names(const char *en_dir) {
         uint32_t count;
         memcpy(&count, hdr + 4, 4);
         for (uint32_t k = 0; k < count; k++) {
-            uint8_t h[6], b[64];
+            uint8_t h[6];                 // b: a name, or a block (the description strings)
             if (fread(h, 1, 6, f) != 6) break;
             uint32_t addr; uint16_t len;
             memcpy(&addr, h, 4); memcpy(&len, h + 4, 2);
@@ -91,5 +92,7 @@ void english_boot(void) {
     extern void dng_spill_load(void);
     dng_spill_load();
     vwf_field_on = 1;
+    // the battle text system (vwf_btl.c): messages, Triangle help, demon conversations
+    vwf_btl_on = !getenv("P1_BTLVWF") || atoi(getenv("P1_BTLVWF"));
     if (rt_trace) fprintf(stderr, "English dialogue on (%s)\n", en);
 }
