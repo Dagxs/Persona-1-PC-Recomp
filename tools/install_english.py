@@ -75,6 +75,35 @@ def dungeon(repo, cd, out):
     print(f'dungeon: {n} pack files, {len(entries)} spill entries, {len(texts)} spill texts')
 
 
+def ending(repo, cd, out, exe):
+    """EXE/END.BIN: the ending's epilogue and staff-roll pages, redrawn in English by the repo's
+    endtext.py (in place, same size). It reads the page sector table from the PS1 END.EXE; the
+    Windows port keeps the same table in Persona.exe (0x5d7802). The PS1 patch's extra pages (the
+    US localization staff, shown by new roll script steps) and the logo sheet's names (which need
+    END.EXE's crop tables) are left out."""
+    src = os.path.join(cd, 'EXE', 'END.BIN')
+    if not os.path.exists(src) or not os.path.exists(exe):
+        return
+    os.makedirs(os.path.join(repo, 'data', 'psx', 'EXE'), exist_ok=True)
+    shutil.copyfile(src, os.path.join(repo, 'data', 'psx', 'EXE', 'END.BIN'))
+    sys.path.insert(0, HERE)
+    from image import Image
+    import endtext
+    img = Image(exe)
+    table = list(struct.unpack_from('<86H', img.mem, 0x5d7802 - img.base))
+    if table[0] != 0 or any(table[i] >= table[i + 1] for i in range(85)):
+        print('ending: page table not found in Persona.exe; the ending stays Japanese')
+        return
+    endtext.end_sectors = lambda image: table
+    endtext.end_exe = lambda: b''
+    pages = endtext.load_pages
+    endtext.load_pages = lambda: {k: v for k, v in pages().items() if k < endtext.END_SIZE and v[0] != 'l'}
+    endtext.roll_asm = lambda new_pages: ('', 0)
+    endtext.main()
+    os.makedirs(os.path.join(out, 'EXE'), exist_ok=True)
+    shutil.copyfile(os.path.join(repo, 'build', 'EXE', 'END.BIN'), os.path.join(out, 'EXE', 'END.BIN'))
+
+
 def main():
     repo = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'third_party', 'persona-translation'))
     cd = os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, 'data', 'cd'))
@@ -110,6 +139,7 @@ def main():
         f.write(blob)
 
     dungeon(repo, cd, out)
+    ending(repo, cd, out, os.path.join(os.path.dirname(cd), 'Persona.exe'))
 
     # movie subtitles (the runtime draws them over the movies)
     subs = os.path.join(repo, 'translation', 'manual', 'fmv', 'subtitles.tsv')
