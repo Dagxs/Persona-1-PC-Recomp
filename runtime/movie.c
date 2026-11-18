@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 void subtitles_draw(const char *movie, double t, uint32_t pixels, uint32_t pitch, int w, int h);
+void quote_draw(const char *movie, double t, uint32_t pixels, uint32_t pitch, int w, int h);
 #define PL_MPEG_IMPLEMENTATION
 #include "../third_party/pl_mpeg/pl_mpeg.h"
 
@@ -226,7 +227,10 @@ static uint32_t sample_Update(const uint32_t *a) {
             }
         }
         extern int english_on;
-        if (english_on) subtitles_draw(m->name, f->time, s->pixels, s->pitch, (int)s->w, (int)s->h);
+        if (english_on) {
+            quote_draw(m->name, f->time, s->pixels, s->pitch, (int)s->w, (int)s->h);
+            subtitles_draw(m->name, f->time, s->pixels, s->pitch, (int)s->w, (int)s->h);
+        }
     }
     return DD_OK;
 }

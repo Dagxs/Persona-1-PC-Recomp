@@ -58,6 +58,9 @@ def main():
     subs = os.path.join(repo, 'translation', 'manual', 'fmv', 'subtitles.tsv')
     if os.path.exists(subs):
         shutil.copyfile(subs, os.path.join(out, 'subtitles.tsv'))
+    quote = os.path.join(repo, 'translation', 'manual', 'fmv', 'opening.tsv')   # the opening movie's quote
+    if os.path.exists(quote):
+        shutil.copyfile(quote, os.path.join(out, 'opening.tsv'))
 
     for name in ('LICENSE', 'contributors.md'):
         src = os.path.join(repo, name)

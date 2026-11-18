@@ -75,4 +75,4 @@ translation's docs (third_party/persona-translation/docs) usually describe the s
   checked yet, and they may be drawn by the battle text system rather than these
   interpreters), dungeon packs D00-D04 (54 boxes do not fit in place; the PS1 patch redirects
   them to a spill area by matching a 24-byte fingerprint at box start), menus / items / skills
-  (small font, strings inside Persona.exe), battle text (BTLP), movie subtitles.
+  (small font, strings inside Persona.exe), battle text (BTLP), movie subtitles (done: runtime/subtitles.c, incl. the opening quote; the ending poems MV1E/MV25 are not).
