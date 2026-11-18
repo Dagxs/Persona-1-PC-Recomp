@@ -54,6 +54,11 @@ def main():
     with open(os.path.join(out, 'vwf_font.bin'), 'wb') as f:
         f.write(blob)
 
+    # movie subtitles (the runtime draws them over the movies)
+    subs = os.path.join(repo, 'translation', 'manual', 'fmv', 'subtitles.tsv')
+    if os.path.exists(subs):
+        shutil.copyfile(subs, os.path.join(out, 'subtitles.tsv'))
+
     for name in ('LICENSE', 'contributors.md'):
         src = os.path.join(repo, name)
         if os.path.exists(src):

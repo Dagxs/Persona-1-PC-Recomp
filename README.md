@@ -70,8 +70,8 @@ your own disc's files (only new data plus "copy from the original" instructions,
 and the game applies it to the installed files at startup. Pick **Language: English** in the
 launcher. Covered so far: the story dialogue (all four script files, ~7,300 text boxes), drawn by
 a variable-width text engine (`runtime/vwf.c`) of the same design as the PS1 translation's, with
-an English text speed option. Still Japanese: menus, items, skills, battles, dungeons, demon talk,
-movie subtitles.
+an English text speed option, and English subtitles on the voiced story movies. Still Japanese:
+menus, items, skills, battles, dungeons, demon talk.
 
 **Regenerating the patch** (after a translation update):
 

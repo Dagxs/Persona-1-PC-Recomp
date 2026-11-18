@@ -191,3 +191,12 @@ void vwf_emit(int interp, int name_path) {
     if (cells > COLS - 1) cells = COLS - 1;
     WR16(st + 0xa, (uint32_t)(line * COLS + cells));
 }
+
+// an ASCII character's rows in the English font, for other text (movie subtitles); returns its advance
+int vwf_glyph(int ch, const uint8_t **rows) {
+    static const uint8_t blank[16];
+    int k = ch - font_first;
+    if (k < 0 || k >= font_count) { *rows = blank; return 4; }
+    *rows = font_rows[k];
+    return font_width[k];
+}

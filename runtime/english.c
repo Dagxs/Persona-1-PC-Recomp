@@ -50,6 +50,8 @@ void english_boot(void) {
             fprintf(stderr, "English: %s/ADV/%s.BIN missing; that part of the script stays Japanese\n", en, SCRIPTS[k].file);
     english_on = 1;
     vwf_active = 1;
+    extern void subtitles_load(void);
+    subtitles_load();
     // Only the story interpreter has verified English data so far. The dungeon (VWF_B) and
     // overworld (VWF_C) copies are hooked too, but stay on the original code until theirs is.
     extern int vwf_on[3];

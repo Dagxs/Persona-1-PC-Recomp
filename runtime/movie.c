@@ -9,6 +9,7 @@
 #include <SDL3/SDL.h>
 #include <stdlib.h>
 #include <string.h>
+void subtitles_draw(const char *movie, double t, uint32_t pixels, uint32_t pitch, int w, int h);
 #define PL_MPEG_IMPLEMENTATION
 #include "../third_party/pl_mpeg/pl_mpeg.h"
 
@@ -39,6 +40,7 @@ static const char *const SAMPLE_METHODS[] = {
 static uint32_t vt_amms, vt_ddms, vt_sample;
 
 struct movie {
+    char name[16];                 // e.g. MV11, for the subtitles
     uint32_t obj_amms, obj_video, obj_sample;
     int want_video, want_audio;
     plm_t *video;                  // video-only decoder
@@ -79,6 +81,12 @@ static uint32_t amms_OpenFile(const uint32_t *a) {
     for (uint32_t c; (c = RD16(a[1] + 2u * k)) && k + 1 < sizeof path; k++) path[k] = (char)c;
     path[k] = 0;
     files_map(path, host, sizeof host);
+    {   // the movie's name: file name without extension
+        const char *b = strrchr(path, 0x5c) ? strrchr(path, 0x5c) + 1 : path;   // after the last backslash
+        size_t j = 0;
+        for (; b[j] && b[j] != '.' && j + 1 < sizeof m->name; j++) m->name[j] = b[j];
+        m->name[j] = 0;
+    }
     m->video = plm_create_with_filename(host);
     if (!m->video) { fprintf(stderr, "movie %s: cannot open %s\n", path, host); return 0x80070002u; }
     plm_set_audio_enabled(m->video, 0);
@@ -100,7 +108,7 @@ static uint32_t amms_OpenFile(const uint32_t *a) {
         }
     }
     if (au) plm_destroy(au);
-    if (rt_trace) fprintf(stderr, "movie %s: %dx%d %.2f fps, %.2f s, audio %zu frames at %d Hz\n", path, w, h,
+    if (rt_trace || getenv("P1_MOVIELOG")) fprintf(stderr, "movie %s: %dx%d %.2f fps, %.2f s, audio %zu frames at %d Hz\n", path, w, h,
                           plm_get_framerate(m->video), plm_get_duration(m->video), m->pcm_frames, m->rate);
     m->rgb = malloc((size_t)w * (size_t)h * 4);
     return DD_OK;
@@ -217,6 +225,8 @@ static uint32_t sample_Update(const uint32_t *a) {
                 dst[2 * x] = (uint8_t)v; dst[2 * x + 1] = (uint8_t)(v >> 8);
             }
         }
+        extern int english_on;
+        if (english_on) subtitles_draw(m->name, f->time, s->pixels, s->pitch, (int)s->w, (int)s->h);
     }
     return DD_OK;
 }
