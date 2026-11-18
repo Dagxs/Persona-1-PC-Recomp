@@ -55,7 +55,31 @@ static int vk_of(SDL_Scancode s) {
     }
 }
 
+// P1_KEYS="frame:vk:down,..." scripts key presses for tests, e.g. "300:83:1,303:83:0" taps S.
+static void scripted_keys(void) {
+    static int init, n, k;
+    static uint32_t ev[256][3];
+    if (!init) {
+        init = 1;
+        const char *s = getenv("P1_KEYS");
+        while (s && *s && n < 256) {
+            unsigned f, vk, d;
+            if (sscanf(s, "%u:%u:%u", &f, &vk, &d) != 3) break;
+            ev[n][0] = f; ev[n][1] = vk; ev[n][2] = d; n++;
+            s = strchr(s, ',');
+            if (s) s++;
+        }
+    }
+    extern uint32_t frame_counter;
+    while (k < n && ev[k][0] <= frame_counter) {
+        keys[ev[k][1] & 255] = (uint8_t)ev[k][2];
+        user32_post_key((int)ev[k][1], (int)ev[k][2]);
+        k++;
+    }
+}
+
 void host_pump_events(void) {
+    scripted_keys();
     if (headless || !window) return;
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
