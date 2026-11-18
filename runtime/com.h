@@ -13,6 +13,8 @@ uint32_t com_release(const uint32_t *a);
 int guid_eq(uint32_t p, const char *s);
 void guid_str(uint32_t p, char *out);
 uint32_t dshow_create(uint32_t iid, uint32_t out);
+int dshow_is_multimedia_stream(uint32_t clsid);
+uint32_t movie_create(uint32_t iid, uint32_t out);
 
 #define CLSID_FilterGraph   "e436ebb3-524f-11ce-9f53-0020af0ba770"
 #define IID_IDirectDraw     "6c14db80-a733-11ce-a521-0020af0be560"

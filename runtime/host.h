@@ -9,6 +9,10 @@ int host_key_down(int vk);
 // present a 32-bit XRGB frame of w x h pixels (scaled to the window)
 void host_present(const uint32_t *pixels, int w, int h);
 
+struct SDL_AudioStream;
+// a new audio stream of 16-bit samples, bound to the output device (NULL when audio is off)
+struct SDL_AudioStream *host_audio_stream(int channels, int rate);
+
 uint32_t guest_call(uint32_t fn, int n, const uint32_t *args);
 void user32_post_key(int vk, int down);
 void user32_post_close(void);

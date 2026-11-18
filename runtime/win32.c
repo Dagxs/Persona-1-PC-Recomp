@@ -9,13 +9,16 @@ static const char *current_api;
 const char *host_current_api(void) { return current_api; }
 
 // ---------------------------------------------------------------- host functions
-struct api { const char *name; api_fn fn; int nargs; };   // nargs < 0: cdecl (caller pops)
+struct api { const char *name; api_fn fn; int nargs; int poll; };   // nargs < 0: cdecl (caller pops)
 static struct api apis[4096];
 static int napis;
 
 uint32_t api_magic(const char *name, api_fn fn, int nargs) {
     if (napis == (int)(sizeof apis / sizeof apis[0])) rt_fatal("too many host functions");
     apis[napis].name = name; apis[napis].fn = fn; apis[napis].nargs = nargs;
+    // functions that busy-wait loops poll: switching threads there lets the waited-for thread run
+    static const char *const POLLED[] = { "timeGetTime", "GetAsyncKeyState", "joyGetPosEx", 0 };
+    for (int k = 0; POLLED[k]; k++) if (!strcmp(name, POLLED[k])) apis[napis].poll = 1;
     return MAGIC_BASE + (uint32_t)napis++;
 }
 
@@ -32,13 +35,16 @@ void host_invoke(uint32_t magic) {
     current_api = a->name;
     uint32_t r = a->fn(args);
     if (rt_trace) {
-        fprintf(stderr, "[%08x] %s(", ret_addr, a->name);
+        fprintf(stderr, "[%08x t%x] %s(", ret_addr, thread_current_id(), a->name);
         for (int j = 0; j < (a->nargs < 0 ? 4 : a->nargs); j++) fprintf(stderr, j ? ", %x" : "%x", args[j]);
         fprintf(stderr, ") = %x\n", r);
     }
     EAX = r;
     // stdcall callee pops its arguments; cdecl leaves them to the caller
     ESP = sp + 4 + (a->nargs > 0 ? 4u * (uint32_t)a->nargs : 0u);
+    // API calls are hand-off points too: a guest busy-wait loop (polling timeGetTime or a flag
+    // through function calls) would otherwise never let a waiting thread run
+    if (rt_switch_pending && a->poll) rt_yield();
 }
 
 // ---------------------------------------------------------------- import table

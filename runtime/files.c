@@ -49,6 +49,11 @@ static int map_path(const char *g, char *out, size_t cap, int *on_cd) {
     return 1;
 }
 
+int files_map(const char *guest, char *host, size_t cap) {
+    int on_cd;
+    return map_path(guest, host, cap, &on_cd);
+}
+
 struct gfile { FILE *f; int console; };
 
 DEF(CreateFileA) {

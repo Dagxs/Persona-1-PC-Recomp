@@ -261,6 +261,11 @@ extern const uint32_t GUEST_ENTRY;
 extern const struct guest_import GUEST_IMPORTS[];
 extern const int GUEST_NIMPORTS;
 
+// where each guest thread is (for the stall watchdog, P1_WATCHDOG)
+extern volatile uint32_t rt_fn_of[64];
+extern _Thread_local int rt_tidx;
+#define FN_ENTER(a) (rt_fn_of[rt_tidx] = (a))
+
 // direct call to a recompiled function: push the guest return address, run it
 #define CALL(f, ret) do { PUSH32(ret); f(); } while (0)
 void rt_call(uint32_t target, uint32_t ret);   // indirect call (code or magic host function)
@@ -271,3 +276,4 @@ extern volatile int rt_switch_pending;
 void rt_yield(void);
 // backward branches: let another guest thread run if one is waiting
 #define POLL() do { if (rt_switch_pending) rt_yield(); } while (0)
+#define POLLAT(a) do { rt_fn_of[rt_tidx] = (a); if (rt_switch_pending) rt_yield(); } while (0)

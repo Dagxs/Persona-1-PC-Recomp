@@ -203,7 +203,8 @@ static void put_systemtime(uint32_t p, struct tm *t, int ms) {
 DEF(GetLocalTime) { time_t now = time(0); struct tm t = *localtime(&now); put_systemtime(a[0], &t, 0); return 0; }
 DEF(GetSystemTime) { time_t now = time(0); struct tm t = *gmtime(&now); put_systemtime(a[0], &t, 0); return 0; }
 DEF(GetTimeZoneInformation) { memset(MEM + a[0], 0, 172); WR32(a[0], (uint32_t)-540); return 0; }   // JST, no DST
-DEF(Sleep) { SDL_Delay(a[0]); rt_yield(); return 0; }
+void thread_sleep(uint32_t ms);
+DEF(Sleep) { thread_sleep(a[0]); return 0; }
 
 // ---------------------------------------------------------------- critical sections, interlocked, TLS
 // Guest threads are serialised by the runtime, so a critical section only needs a recursion count.

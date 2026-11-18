@@ -153,3 +153,24 @@ void dump_frame_if_requested(const uint32_t *px, int w, int h) {
     }
     if (limit && n >= (uint32_t)limit) { fprintf(stderr, "P1_FRAMES reached (%u frames)\n", n); exit(0); }
 }
+
+// ---------------------------------------------------------------- audio
+static SDL_AudioDeviceID audio_dev;
+static int audio_state;   // 0 untried, 1 ok, -1 off
+SDL_AudioStream *host_audio_stream(int channels, int rate) {
+    if (!audio_state) {
+        audio_state = -1;
+        if (!getenv("P1_NOAUDIO") && (!headless || getenv("P1_AUDIO")) && SDL_InitSubSystem(SDL_INIT_AUDIO)) {
+            audio_dev = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, NULL);
+            if (audio_dev) audio_state = 1;
+            else fprintf(stderr, "audio: %s\n", SDL_GetError());
+        }
+    }
+    SDL_AudioSpec src = { SDL_AUDIO_S16, channels, rate };
+    SDL_AudioSpec dst;
+    if (audio_state == 1) SDL_GetAudioDeviceFormat(audio_dev, &dst, NULL);
+    else dst = src;
+    SDL_AudioStream *s = SDL_CreateAudioStream(&src, &dst);
+    if (s && audio_state == 1) SDL_BindAudioStream(audio_dev, s);
+    return s;
+}

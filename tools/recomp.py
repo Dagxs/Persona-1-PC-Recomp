@@ -129,7 +129,7 @@ class Gen:
 
     def goto(self, fn, t, cur):
         if t in fn.body and (t == fn.ep or not self.is_entry(t)):
-            return ('{ POLL(); goto L_%x; }' if t <= cur else 'goto L_%x;') % t
+            return ('{ POLLAT(0x%xu); goto L_%x; }' % (cur, t)) if t <= cur else 'goto L_%x;' % t
         if self.is_entry(t):
             return '{ f_%08x(); return; }' % t
         return 'rt_jump(0x%xu); return;' % t
@@ -170,7 +170,7 @@ class Gen:
 
     def emit_fn(self, ep):
         fn = self.collect(ep)
-        out = ['void f_%08x(void) {' % ep]
+        out = ['void f_%08x(void) {' % ep, '  FN_ENTER(0x%xu);' % ep]
         addrs = sorted(fn.body)
         if addrs[0] != ep:
             out.append('  goto L_%x;' % ep)

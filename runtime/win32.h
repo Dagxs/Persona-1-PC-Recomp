@@ -18,9 +18,13 @@ uint32_t thread_current_id(void);
 uint32_t thread_teb(void);
 void thread_cs_enter(uint32_t cs);
 void thread_cs_leave(uint32_t cs);
+uint32_t thread_event_new(int manual);
+int thread_wait(int (*cond)(void *), void *arg, uint32_t timeout_ms);
+void thread_event_set(uint32_t h, int state);
 
 // files (files.c)
 void files_init(void);
+int files_map(const char *guest, char *host, size_t cap);
 
 // handles: small integers tagged by kind
 enum { H_FREE, H_FILE, H_EVENT, H_THREAD, H_HEAP, H_FIND, H_MODULE, H_KEY };

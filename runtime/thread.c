@@ -24,6 +24,8 @@ struct gthread {
 
 struct gevent { int manual, signaled; };
 
+volatile uint32_t rt_fn_of[64];
+_Thread_local int rt_tidx;
 static SDL_Mutex *gil;
 static struct gthread *running;
 static struct gthread *queue_head, *queue_tail;
@@ -87,19 +89,71 @@ void rt_yield(void) {
     if (self->terminate) { self->finished = 1; SDL_UnlockMutex(gil); for (;;) SDL_Delay(1000); }
 }
 
-// Block until cond(arg) holds, letting other threads run meanwhile.
+// A blocked thread gives the CPU away (to the next queued thread, or to nobody), sleeps about
+// a millisecond, then takes its turn again to re-check its condition. It does not sit in the run
+// queue while it sleeps, so a busy-waiting thread is not made to hand off at every loop iteration.
+static void block_tick(void) {
+    struct gthread *self = running;
+    save(&self->st);
+    if (queue_head) {
+        struct gthread *nx = queue_head;
+        queue_head = nx->next_wait;
+        if (!queue_head) queue_tail = 0;
+        rt_switch_pending = queue_head != 0;
+        running = nx;
+        SDL_SignalCondition(nx->turn);
+    } else running = 0;
+    SDL_UnlockMutex(gil);
+    SDL_Delay(1);
+    SDL_LockMutex(gil);
+    if (!running) running = self;
+    else { enqueue(self); while (running != self) SDL_WaitCondition(self->turn, gil); }
+    load(&self->st);
+    if (self->terminate) { self->finished = 1; SDL_UnlockMutex(gil); for (;;) SDL_Delay(1000); }
+}
+
+// Block until cond(arg) holds (or the timeout passes), letting other threads run meanwhile.
 static void wait_until(int (*cond)(void *), void *arg, uint32_t timeout_ms, int *timed_out) {
     uint64_t t0 = SDL_GetTicks();
     *timed_out = 0;
-    while (!cond(arg)) {
+    while (!cond || !cond(arg)) {
         if (timeout_ms != 0xffffffffu && SDL_GetTicks() - t0 >= timeout_ms) { *timed_out = 1; return; }
-        if (queue_head) rt_yield();
-        else { SDL_UnlockMutex(gil); SDL_Delay(1); SDL_LockMutex(gil); }
+        block_tick();
     }
+}
+
+// Sleep(ms) without holding up the other guest threads
+void thread_sleep(uint32_t ms) {
+    int to;
+    if (!ms) { rt_yield(); return; }
+    wait_until(0, 0, ms, &to);
+}
+
+// Exported for host objects that block (DirectShow WaitForCompletion): returns 0 on timeout.
+int thread_wait(int (*cond)(void *), void *arg, uint32_t timeout_ms) {
+    int to;
+    wait_until(cond, arg, timeout_ms, &to);
+    return !to;
 }
 
 uint32_t thread_current_id(void) { return running->id; }
 uint32_t thread_teb(void) { return running->teb; }
+
+// P1_WATCHDOG=secs: every few seconds, print which guest function each thread is in
+static int watchdog(void *arg) {
+    (void)arg;
+    int secs = atoi(getenv("P1_WATCHDOG"));
+    for (;;) {
+        SDL_Delay((uint32_t)(secs > 0 ? secs : 5) * 1000u);
+        fprintf(stderr, "watchdog: running t%x;", running ? running->id : 0);
+        for (int k = 0; k < nthreads; k++) fprintf(stderr, " t%x@%08x%s", threads[k]->id, rt_fn_of[threads[k]->id - 0x100],
+                                                   threads[k]->finished ? "(done)" : "");
+        const char *w = getenv("P1_WATCH");      // P1_WATCH=addr: also print a guest dword
+        if (w) fprintf(stderr, " [%s]=%x", w, RD32((uint32_t)strtoul(w, 0, 16)));
+        fputc('\n', stderr);
+    }
+    return 0;
+}
 
 void thread_init_main(void) {
     gil = SDL_CreateMutex();
@@ -110,12 +164,15 @@ void thread_init_main(void) {
     t->teb = make_teb(STACK_TOP, 0x200000u, t->id);
     threads[nthreads++] = t;
     running = t;
+    rt_tidx = 0;
     ESP = STACK_TOP - 16;
+    if (getenv("P1_WATCHDOG")) SDL_DetachThread(SDL_CreateThread(watchdog, "watchdog", 0));
     FS_BASE = t->teb;
 }
 
 static int thread_main(void *arg) {
     struct gthread *t = arg;
+    rt_tidx = (int)(t->id - 0x100);
     SDL_LockMutex(gil);
     while (running != t) SDL_WaitCondition(t->turn, gil);
     load(&t->st);
@@ -177,6 +234,16 @@ DEF(CreateEventA) {
     e->signaled = a[2] != 0;
     return handle_new(H_EVENT, e);
 }
+uint32_t thread_event_new(int manual) {
+    struct gevent *e = calloc(1, sizeof *e);
+    e->manual = manual;
+    return handle_new(H_EVENT, e);
+}
+void thread_event_set(uint32_t h, int state) {
+    struct gevent *e = handle_get(h, H_EVENT);
+    if (e) e->signaled = state;
+}
+
 DEF(SetEvent) {
     struct gevent *e = handle_get(a[0], H_EVENT);
     if (!e) return 0;
@@ -204,7 +271,10 @@ DEF(WaitForSingleObject) {
 
 // critical sections: offset 8 = recursion count, 12 = owner thread id
 void thread_cs_enter(uint32_t cs) {
+    int warned = 0;
     while (RD32(cs + 12) && RD32(cs + 12) != running->id) {
+        if (!warned++ && rt_trace) fprintf(stderr, "t%x waits for critical section %08x held by t%x (count %u)\n",
+                                           running->id, cs, RD32(cs + 12), RD32(cs + 8));
         if (queue_head) rt_yield();
         else rt_fatal("deadlock: critical section %08x held by thread %x", cs, RD32(cs + 12));
     }

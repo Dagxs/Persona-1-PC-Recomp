@@ -66,6 +66,7 @@ uint32_t com_create_instance(uint32_t clsid, uint32_t iid, uint32_t out) {
     char c[40], i[40];
     guid_str(clsid, c); guid_str(iid, i);
     if (guid_eq(clsid, CLSID_FilterGraph)) return dshow_create(iid, out);
+    if (dshow_is_multimedia_stream(clsid)) return movie_create(iid, out);
     fprintf(stderr, "CoCreateInstance: class %s interface %s not available\n", c, i);
     WR32(out, 0);
     return 0x80040154u;    // REGDB_E_CLASSNOTREG
