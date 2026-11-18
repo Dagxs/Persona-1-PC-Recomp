@@ -91,18 +91,29 @@ translation's docs (third_party/persona-translation/docs) usually describe the s
   FieldMsgPrintCodes `0x42dda0`, FieldDecodeGlyph `0x428a70` (font pointer `0x5e110c`, glyph
   image at `[0x5e107c]+0x6da5c`, ink 1, shadow 2 one pixel right and down), LoadImage
   `0x54c380` (ecx rect, edx source), FieldFrame `0x422100`. English: runtime/vwf_field.c.
-- Battle text (BTLP: battle messages and the TALK conversations) is NOT found on the PC yet. On
-  the PS1 its interpreter is 0x8007C9E0 with glyph function 0x8007C754(struct, ptr) -> ptr (one
-  16x16 cell per character, LoadImage + DrawSync per cell, its own sprite list). Not the three
-  MsgStep copies, not the field script. Ruled out on the PC: the LoadImage (0x54c380) callers
-  0x515f65 (per-frame battle code), 0x516a6b (TIM loader); the `and r,0xffff; shl r,5` sites
-  0x519b8f / 0x4f2ae2 / 0x4fb055 (equipment stats). Next step: during a battle message, watch
-  reads of FONT.BIN (host 0x844ff0..) with the P1_WATCHREAD build to find the glyph routine.
-- Still to do: battle text and TALK (above; TALK files grow up to 40 %), descriptions (pointer
-  table; PS1 pointers must become PC addresses), race names (copies in the PC overlay code),
-  names longer than 10 glyphs (the PS1 patch's tails), map titles longer than 10 characters,
-  the ending poems in MV1E/MV25, the logo-sheet names of the staff roll.
+- Battle text (PS1 BTLP: battle messages, Triangle help, the TALK conversations, story-battle
+  lines): interpreter step `0x52fd60(ecx = text struct)` (reads the pointer at struct+8, `0x52fd6d`),
+  character step `0x52f850`, glyph function `0x52fbb0(ecx struct, edx ptr) -> ptr` (PS1
+  0x8007C754), code read `0x52f370`, FONT.BIN glyph decode `0x521430(code, dst, font)` (ink 1,
+  shadow 2), upload queue `0x5212d0(ecx src, dx x, stack y, w, h)` (72 entries at `0x637f18`,
+  count `0x638454`, flushed by `0x5213e7` after the queued clears). Text struct as on the PS1:
+  +0x10 sprite attribute, +0x1C cell, +0x20 sprite count, +0x28 sprites {x, y, 0, 0, attr},
+  +0x26C/+0x26E texture origin; the sprite draw takes the texture slot from the sprite index.
+  Structs: message box `0x63f0b0` (opened by `0x5302e0(ecx text)`, through `0x531bf0`),
+  dialogue `0x638f40` (`0x52fd00`). Name / number inserts are copied to `0x6391e0..0x639288`
+  (`0x52e5d0`; names through `0x52e6c0`: bytes >= 0x80 get an 0x80 lead). 16 px string
+  renderer (command windows) `0x52f2c0(ecx descriptor, edx string)` (PS1 0x8007BF44).
+  English: runtime/vwf_btl.c. The BTLP strings are in Persona.exe's data, but not in one block
+  (own alignment, identical strings stored once); tools/btl_map.py matches the translation's rows
+  to them by slot sizes. Descriptions: table of PC pointers at `0x5d48a8` (PS1 0x8004AA7C), read by
+  `0x41b885`, `0x473985`, `0x4dc705` (the three MsgStep copies) and `0x4fcd81` (battle help).
+- Still to do: race names (copies in the PC overlay code), names longer than 10 glyphs (the PS1
+  patch's tails), map titles longer than 10 characters, the ending poems in MV1E/MV25, the
+  logo-sheet names of the staff roll, the battle strings btl_map.py cannot match (164 of 1001)
+  and the debug menus.
   Done: story dialogue, movie subtitles and the opening quote, button prompts.
   Written but not yet seen in game: dungeon field-script boxes (vwf_field.c), the dungeon / town
   dialogue copies, item / skill / Persona / demon names and the small-font Latin cells, the
-  ending pages (EXE/END.BIN).
+  ending pages (EXE/END.BIN), descriptions, the whole battle text system (vwf_btl.c, TALK files,
+  btl_text.bin; P1_BTLVWF=0 turns its engine off, but the English TALK files and descriptions
+  then show as wrong glyphs).
