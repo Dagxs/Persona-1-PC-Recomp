@@ -59,20 +59,24 @@ Gamepad (any SDL-supported controller): D-pad or left stick moves; bottom face b
 right face button cancels, top = triangle, left = square, bumpers/triggers = L1/R1/L2/R2,
 Back/Start = select/start. The Japanese layout (right button confirms) is in the options menu.
 
-## English translation (in progress)
+## English translation
 The English text comes from the PS1 fan translation
 [ayla6/megami-ibunroku-persona-translation](https://github.com/ayla6/megami-ibunroku-persona-translation)
-(MIT), a port of the PSP script. The Windows port keeps the PS1 data formats, so its text tools
-apply to the Windows files directly:
+(MIT), a port of the PSP script, included as the submodule `third_party/persona-translation`
+(`git clone --recursive`, or `git submodule update --init`).
 
-    git clone https://github.com/ayla6/megami-ibunroku-persona-translation _tl
-    python tools/install_english.py _tl data/cd data/en
+**Players need nothing extra:** `assets/english.p1patch` holds the English text as a patch against
+your own disc's files (only new data plus "copy from the original" instructions, no game data),
+and the game applies it to the installed files at startup. Pick **Language: English** in the
+launcher. Covered so far: the story dialogue (all four script files, ~7,300 text boxes), drawn by
+a variable-width text engine (`runtime/vwf.c`) of the same design as the PS1 translation's, with
+an English text speed option. Still Japanese: menus, items, skills, battles, dungeons, demon talk,
+movie subtitles.
 
-This builds `data/en/` (the story scripts `ADV/E0-E3.BIN` rebuilt with English from your disc's
-own files, plus the translation's variable-width font). Then pick **Language: English** in the
-launcher. The story dialogue (all four script files, about 7,300 text boxes) is drawn by a
-variable-width text engine (`runtime/vwf.c`), the same design as the PS1 translation's.
-Menus, items, battles, dungeon text, demon talk and movie subtitles are still Japanese.
+**Regenerating the patch** (after a translation update):
+
+    python tools/install_english.py third_party/persona-translation data/cd data/en
+    python tools/make_en_patch.py data/cd data/en assets/english.p1patch
 
 ## Status
 - [x] Function discovery without relocations (~26k functions, 83% of .text)
@@ -82,7 +86,7 @@ Menus, items, battles, dungeon text, demon talk and movie subtitles are still Ja
 - [x] DirectShow: MP3 music/effects, MPEG-1 movies
 - [x] Gamepads, launcher, in-game options
 - [ ] Internal resolution above 1x: implemented, quality and speed not yet checked
-- [x] English story dialogue (variable-width font)
+- [x] English story dialogue (variable-width font), shipped as a patch applied on startup
 - [ ] English: faster printing (two letters per frame), menus, battles, names, dungeons, subtitles
 - [ ] Play-testing beyond the opening
 

@@ -104,6 +104,8 @@ void host_apply_settings(int resize) {
 void host_launcher(void) {
     paths_init();
     settings_load();
+    extern int english_prepare(void);
+    if (game_installed()) english_prepare();      // build data/en from assets/english.p1patch if needed
     if (getenv("P1_HEADLESS")) return;
     // the launcher always opens when the game files are missing: it is where they get installed
     if ((getenv("P1_NOLAUNCHER") || !cfg.show_launcher) && game_installed()) return;

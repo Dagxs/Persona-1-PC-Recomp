@@ -149,7 +149,8 @@ int main(int argc, char **argv) {
         char err[300];
         printf("installing %s into %s ...\n", argv[2], path_data());
         if (install_from_disc(argv[2], NULL, NULL, err, sizeof err)) { fprintf(stderr, "install failed: %s\n", err); return 1; }
-        printf("installed\n");
+        extern int english_prepare(void);
+        printf(english_prepare() ? "installed (English ready)\n" : "installed\n");
         return 0;
     }
     host_launcher();      // settings + launcher window (before the game is loaded)

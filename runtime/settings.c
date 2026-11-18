@@ -59,6 +59,7 @@ void settings_save(void) {
 
 // The English translation will ship as a folder of replacement data; until then it is absent.
 int settings_english_available(void) {
+    extern int english_patch_present(void);
     struct stat st;
-    return stat(path_en(), &st) == 0;
+    return stat(path_en(), &st) == 0 || english_patch_present();
 }

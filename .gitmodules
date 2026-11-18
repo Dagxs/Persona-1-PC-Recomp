@@ -1,0 +1,3 @@
+[submodule "third_party/persona-translation"]
+	path = third_party/persona-translation
+	url = https://github.com/ayla6/megami-ibunroku-persona-translation

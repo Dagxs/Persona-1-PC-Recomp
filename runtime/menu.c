@@ -146,7 +146,7 @@ static void run_install(void) {
     pick_state = 0;
     char err[300] = "";
     if (install_from_disc(picked, progress_screen, NULL, err, sizeof err)) snprintf(install_msg, sizeof install_msg, "Install failed: %s", err);
-    else snprintf(install_msg, sizeof install_msg, "Installed. Press Play.");
+    else { extern int english_prepare(void); english_prepare(); snprintf(install_msg, sizeof install_msg, "Installed. Press Play."); }
 }
 
 static void draw(int sel, int launcher, SDL_Texture *bg) {
