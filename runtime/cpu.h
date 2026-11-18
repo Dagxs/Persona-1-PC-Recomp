@@ -289,6 +289,7 @@ uint32_t dng_spill(uint32_t p);
 // the battle text system (runtime/vwf_btl.c)
 extern int vwf_btl_on;
 void vwf_btl_glyph(void);
+void vwf_btl_str16(void);
 
 // direct call to a recompiled function: push the guest return address, run it
 #define CALL(f, ret) do { PUSH32(ret); f(); } while (0)

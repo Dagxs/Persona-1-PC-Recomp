@@ -524,6 +524,9 @@ PATCHES[0x42cdd3] = ['if (vwf_field_on) ESI = dng_spill(ESI);',
 # The battle text system's glyph function (PS1 BTLP 0x8007C754; runtime/vwf_btl.c).
 PATCHES[0x52fbb0] = ['if (vwf_btl_on) { vwf_btl_glyph(); ESP += 4u; return; }',
                      '{ uint32_t t = R[1]; PUSH32(t); }']
+# and its 16 px string renderer (PS1 BTLP 0x8007BF44: command windows)
+PATCHES[0x52f2c0] = ['if (vwf_btl_on) { vwf_btl_str16(); ESP += 4u; return; }',
+                     '{ uint32_t t = R[1]; PUSH32(t); }']
 
 
 def main():

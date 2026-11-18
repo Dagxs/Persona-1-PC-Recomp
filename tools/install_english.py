@@ -191,6 +191,35 @@ def names(repo, out, img):
     print(f'names: {len(patches)} names')
 
 
+def talk(repo, cd, out):
+    """Demon conversations: TALK/*.BIN are the PS1 files (loaded to PS1 RAM 0x801C0000, FONT.BIN
+    at 0x801E0000 above them, so a file may grow to 128 KB). The repo rebuilds them in English
+    (talk.py; etctalk.py for ETC.BIN); the battle text engine (runtime/vwf_btl.c) draws them."""
+    import glob
+    import subprocess
+    src = os.path.join(repo, 'data', 'psx', 'TALK')
+    os.makedirs(src, exist_ok=True)
+    for f in glob.glob(os.path.join(cd, 'TALK', '*.BIN')):
+        shutil.copyfile(f, os.path.join(src, os.path.basename(f)))
+    dst = os.path.join(repo, 'build', 'TALK')
+    tools = os.path.join(repo, 'src', 'injection_tools')
+    for cmd in (['talk.py', 'build', dst], ['etctalk.py', 'build', dst]):
+        r = subprocess.run([sys.executable, os.path.join(tools, cmd[0])] + cmd[1:], cwd=repo,
+                           capture_output=True, text=True, encoding='utf-8', errors='replace')
+        if r.returncode:
+            print(f'talk: {cmd[0]} failed; demon conversations stay Japanese\n{r.stderr[-800:]}')
+            return
+    os.makedirs(os.path.join(out, 'TALK'), exist_ok=True)
+    n = 0
+    for f in glob.glob(os.path.join(dst, '*.BIN')):
+        if os.path.getsize(f) > 0x20000:
+            print(f'talk: {os.path.basename(f)} is over 128 KB; it stays Japanese')
+            continue
+        shutil.copyfile(f, os.path.join(out, 'TALK', os.path.basename(f)))
+        n += 1
+    print(f'talk: {n} files')
+
+
 def descriptions(repo, img):
     """Skill and item descriptions (the one-line help of the menus): the repo's descs tool re-packs
     the English into the PS1 string zone and rewrites the pointer table; Persona.exe holds the same
@@ -305,6 +334,7 @@ def main():
         f.write(blob)
 
     dungeon(repo, cd, out)
+    talk(repo, cd, out)
     ending(repo, cd, out, os.path.join(os.path.dirname(cd), 'Persona.exe'))
     exe = os.path.join(os.path.dirname(cd), 'Persona.exe')
     if os.path.exists(exe):

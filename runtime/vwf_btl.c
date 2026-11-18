@@ -189,3 +189,62 @@ void vwf_btl_glyph(void) {
     WR32(st + T_CELL, (uint32_t)(line * COLS + cells));
     EAX = next;
 }
+
+// ---------------------------------------------------------------- the 16 px string renderer
+// 0x52f2c0(ecx = descriptor {.., +4 x, +6 y}, edx = string; FF / F5 end), PS1 BTLP 0x8007BF44: the
+// battle command windows (CONTACT commands, the "LV name" header...). Retail queues one glyph per
+// cell to x = (desc.x + 0x1c0 + 2 * cell) * 2, y = desc.y + 0x150; the caller owns the sprites. With
+// English on the string is composed at real widths and every cell it covers is queued.
+#define S16_RING 256              // cells of upload buffers, reused round robin (queued until the frame ends)
+static uint32_t s16_ring;
+static int s16_next;
+
+void vwf_btl_str16(void) {
+    uint32_t desc = ECX, p = EDX;
+    static uint8_t row[16][BOX_W + 32];
+    memset(row, 0, sizeof row);
+    if (!s16_ring) s16_ring = hostobj_alloc(S16_RING * 128);
+    int pen = 0, n = 0;
+    while (n < COLS) {
+        uint32_t code = RD8(p);
+        if (code == 0xff || code == 0xf5 || RD8(p + 1) == 0xf5) break;
+        int two = 0;
+        uint32_t next = p + 1;
+        if (code >= 0x80 && code <= 0x87) { code = (code & 0x7f) << 8 | RD8(p + 1); next = p + 2; two = 1; }
+        const uint8_t *narrow = 0;
+        uint32_t wide = 0;
+        int adv;
+        if (!two && code >= 0x88 && code <= 0xfe) adv = vwf_glyph((int)code - ENGLISH_BIAS, &narrow);
+        else { wide = RD32(FONT_BASE) + 0x1e0000u + (code & 0x7fffu) * 32u; adv = 16; }
+        if (pen + adv > BOX_W) break;
+        for (int r = 0; r < 16; r++) {
+            uint32_t bits = wide ? (uint32_t)RD8(wide + 2u * r) << 8 | RD8(wide + 2u * r + 1) : (uint32_t)narrow[r] << 8;
+            for (int b = 0; bits && b < 16; b++)
+                if (bits & (0x8000u >> b)) {
+                    row[r][pen + b] = INK;
+                    if (r + 1 < 16 && !row[r + 1][pen + b + 1]) row[r + 1][pen + b + 1] = SHADOW;
+                }
+        }
+        pen += adv;
+        p = next;
+        n++;
+    }
+    int cells = (pen + 15) >> 4;
+    if (cells > COLS) cells = COLS;
+    uint32_t a = EAX, c = ECX, d = EDX;
+    for (int cell = 0; cell < cells; cell++) {
+        if (RD32(Q_COUNT) >= Q_MAX - 1) break;       // the queue is full this frame
+        uint32_t src = s16_ring + (uint32_t)s16_next * 128u;
+        s16_next = (s16_next + 1) % S16_RING;
+        for (int y = 0; y < 16; y++)
+            for (int x = 0; x < 16; x += 2)
+                WR8(src + (uint32_t)y * 8u + (uint32_t)x / 2u, (uint8_t)(row[y][cell * 16 + x] | row[y][cell * 16 + x + 1] << 4));
+        PUSH32(16u);
+        PUSH32(4u);
+        PUSH32((uint16_t)(RD16(desc + 6) + 0x150));
+        ECX = src;
+        EDX = (uint16_t)((RD16(desc + 4) + 0x1c0 + 2 * cell) * 2);
+        rt_call(F_QUEUE, MAGIC_RET);
+    }
+    EAX = a; ECX = c; EDX = d;
+}
