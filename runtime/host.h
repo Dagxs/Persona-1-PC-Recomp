@@ -14,6 +14,17 @@ struct SDL_AudioStream;
 struct SDL_AudioStream *host_audio_stream(int channels, int rate);
 struct SDL_AudioStream *host_audio_stream_f32(int channels, int rate);   // float samples
 
+// settings, launcher and in-game menu (menu.c, settings.c)
+struct SDL_Renderer;
+struct SDL_Texture;
+struct SDL_Renderer *host_renderer(void);
+struct SDL_Texture *host_last_frame(void);
+void host_apply_settings(int resize);
+void host_launcher(void);
+void host_audio_volume(void);
+void host_audio_pause(int paused);
+int menu_run(int launcher);
+
 uint32_t guest_call(uint32_t fn, int n, const uint32_t *args);
 void user32_post_key(int vk, int down);
 void user32_post_close(void);

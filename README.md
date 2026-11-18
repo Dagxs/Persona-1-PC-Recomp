@@ -17,6 +17,13 @@ Needs Python 3 with `pefile` and `capstone`, clang, CMake, Ninja and SDL3
     cmake --build build
     ./build/persona1.exe
 
+## Launcher and options
+A settings screen opens before the game (Play / Quit), and the same menu opens in game with **F10**
+or the controller's Home/Guide button (the game pauses). Settings: fullscreen or window, window size
+1x-4x, fill-screen or pixel-perfect integer scaling, sharp or smooth filtering, VSync, controller
+layout (Western / Japanese), master volume, language (English once a translation is installed),
+and whether to show the launcher. They are saved in `save/settings.ini`.
+
 ## Controls
 Keyboard (the game's own defaults): numpad 8/2/4/6 move, S confirm, Z cancel, W / A the other face
 buttons, numpad 7/1/9/3 shoulder buttons, numpad 0 / numpad . select / start. Arrows, Enter

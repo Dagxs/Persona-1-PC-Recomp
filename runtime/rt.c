@@ -1,5 +1,6 @@
 // Runtime core: guest memory, CPU state, dispatch of indirect branches, string ops, x87 helpers.
 #include "rt.h"
+#include "host.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -141,6 +142,7 @@ void st_f80(uint32_t a, double v) {
 // ---------------------------------------------------------------- startup
 int main(int argc, char **argv) {
     rt_trace = getenv("P1_TRACE") ? atoi(getenv("P1_TRACE")) : 0;
+    host_launcher();      // settings + launcher window (before the game is loaded)
     MEM = host_alloc_guest(MEM_SIZE);
     if (!MEM) rt_fatal("cannot reserve %u MB of guest memory", MEM_SIZE >> 20);
     const char *exe = getenv("P1_EXE") ? getenv("P1_EXE") : "data/Persona.exe";

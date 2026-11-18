@@ -1,6 +1,7 @@
 // SDL3 host: the game window, keyboard state (Win32 virtual-key codes), frame presentation.
 #include "rt.h"
 #include "host.h"
+#include "settings.h"
 #include <SDL3/SDL.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,14 +17,13 @@ static uint8_t pad[256];          // keys held by gamepads (see pad_vk)
 // Besides its configurable keys, Persona always reads a fixed set of keys, each tied to a
 // PlayStation button: arrows = D-pad, Enter = circle (confirm), Esc = cross (cancel), F2 = triangle,
 // F1 = square, Home/End/PgUp/PgDn = L1/L2/R1/R2, Insert = select, Delete = start.
-// Gamepads press those keys. The bottom face button confirms and the right one cancels;
-// P1_PAD_JAPANESE=1 swaps them to the original Japanese PlayStation layout.
+// Gamepads press those keys. The bottom face button confirms and the right one cancels; the
+// "Japanese" controller layout setting swaps them to the original PlayStation layout.
 enum { VK_UP = 0x26, VK_DOWN = 0x28, VK_LEFT = 0x25, VK_RIGHT = 0x27, VK_CIRCLE = 0x0d, VK_CROSS = 0x1b,
        VK_TRIANGLE = 0x71, VK_SQUARE = 0x70, VK_L1 = 0x24, VK_L2 = 0x23, VK_R1 = 0x21, VK_R2 = 0x22,
        VK_SELECT = 0x2d, VK_START = 0x2e };
 static int pad_vk(SDL_GamepadButton b) {
-    static int western = -1;
-    if (western < 0) western = !(getenv("P1_PAD_JAPANESE") && atoi(getenv("P1_PAD_JAPANESE")));
+    int western = !cfg.pad_japanese;
     switch (b) {
     case SDL_GAMEPAD_BUTTON_SOUTH: return western ? VK_CIRCLE : VK_CROSS;
     case SDL_GAMEPAD_BUTTON_EAST: return western ? VK_CROSS : VK_CIRCLE;
@@ -66,6 +66,7 @@ static void pad_refresh(void) {
     memcpy(pad, now, sizeof pad);
 }
 static int headless;
+static volatile int menu_requested;   // F10 / Guide pressed: open the options menu after this frame
 
 void host_window_create(const char *title) {
     if (window || headless) return;
@@ -73,12 +74,37 @@ void host_window_create(const char *title) {
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) rt_fatal("SDL video: %s", SDL_GetError());
     if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) fprintf(stderr, "gamepads unavailable: %s\n", SDL_GetError());
     (void)title;   // the Japanese title is Shift-JIS; SDL wants UTF-8
-    window = SDL_CreateWindow("Megami Ibunroku Persona", 1280, 960, SDL_WINDOW_RESIZABLE);
+    window = SDL_CreateWindow("Megami Ibunroku Persona", 640 * cfg.window_scale, 480 * cfg.window_scale, SDL_WINDOW_RESIZABLE);
     if (!window) rt_fatal("SDL window: %s", SDL_GetError());
     renderer = SDL_CreateRenderer(window, NULL);
     if (!renderer) rt_fatal("SDL renderer: %s", SDL_GetError());
-    SDL_SetRenderLogicalPresentation(renderer, 640, 480, SDL_LOGICAL_PRESENTATION_LETTERBOX);
-    SDL_SetRenderVSync(renderer, 1);
+    host_apply_settings(0);
+}
+
+SDL_Renderer *host_renderer(void) { return renderer; }
+SDL_Texture *host_last_frame(void) { return frame; }
+
+// Apply display and audio settings; resize: also set the window size from the scale setting.
+void host_apply_settings(int resize) {
+    if (!window) return;
+    SDL_SetWindowFullscreen(window, cfg.fullscreen);
+    if (resize && !cfg.fullscreen) {
+        SDL_SetWindowSize(window, 640 * cfg.window_scale, 480 * cfg.window_scale);
+        SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+    }
+    SDL_SetRenderVSync(renderer, cfg.vsync ? 1 : 0);
+    SDL_SetRenderLogicalPresentation(renderer, frame_w ? frame_w : 640, frame_h ? frame_h : 480,
+                                     cfg.integer_scale ? SDL_LOGICAL_PRESENTATION_INTEGER_SCALE : SDL_LOGICAL_PRESENTATION_LETTERBOX);
+    if (frame) SDL_SetTextureScaleMode(frame, cfg.smooth ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
+    host_audio_volume();
+}
+
+// The launcher: shown before the game starts unless turned off (or P1_HEADLESS / P1_NOLAUNCHER).
+void host_launcher(void) {
+    settings_load();
+    if (getenv("P1_HEADLESS") || getenv("P1_NOLAUNCHER") || !cfg.show_launcher) return;
+    host_window_create("");
+    if (!menu_run(1)) exit(0);
 }
 
 void host_message_box(const char *caption, const char *text) {
@@ -147,6 +173,9 @@ void host_pump_events(void) {
             if (g) fprintf(stderr, "gamepad connected: %s\n", SDL_GetGamepadName(g));
             break;
         }
+        case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+            if (e.gbutton.button == SDL_GAMEPAD_BUTTON_GUIDE) menu_requested = 1;
+            break;
         case SDL_EVENT_GAMEPAD_REMOVED: {
             SDL_Gamepad *g = SDL_GetGamepadFromID(e.gdevice.which);
             if (g) SDL_CloseGamepad(g);
@@ -159,9 +188,12 @@ void host_pump_events(void) {
         case SDL_EVENT_KEY_UP: {
             int vk = vk_of(e.key.scancode), down = e.type == SDL_EVENT_KEY_DOWN;
             if (e.key.scancode == SDL_SCANCODE_RETURN && (e.key.mod & SDL_KMOD_ALT) && down) {
-                SDL_SetWindowFullscreen(window, !(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN));
+                cfg.fullscreen = !cfg.fullscreen;
+                settings_save();
+                host_apply_settings(1);
                 break;
             }
+            if (e.key.scancode == SDL_SCANCODE_F10) { if (down) menu_requested = 1; break; }
             if (vk) { keys[vk] = (uint8_t)down; if (!e.key.repeat) user32_post_key(vk, down); }
             if (e.key.scancode == SDL_SCANCODE_KP_ENTER) keys[0x0d] = (uint8_t)down;
             break;
@@ -178,15 +210,22 @@ void host_present(const uint32_t *pixels, int w, int h) {
     if (!frame || w != frame_w || h != frame_h) {
         if (frame) SDL_DestroyTexture(frame);
         frame = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
-        SDL_SetTextureScaleMode(frame, SDL_SCALEMODE_NEAREST);
-        SDL_SetRenderLogicalPresentation(renderer, w, h, SDL_LOGICAL_PRESENTATION_LETTERBOX);
         frame_w = w; frame_h = h;
+        host_apply_settings(0);
     }
     SDL_UpdateTexture(frame, NULL, pixels, w * 4);
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
     SDL_RenderTexture(renderer, frame, NULL, NULL);
     SDL_RenderPresent(renderer);
+    if (menu_requested) {
+        menu_requested = 0;
+        memset(keys, 0, sizeof keys);
+        memset(pad, 0, sizeof pad);
+        if (!menu_run(0)) exit(0);
+        SDL_SetRenderLogicalPresentation(renderer, frame_w, frame_h,
+                                         cfg.integer_scale ? SDL_LOGICAL_PRESENTATION_INTEGER_SCALE : SDL_LOGICAL_PRESENTATION_LETTERBOX);
+    }
 }
 
 // ---------------------------------------------------------------- test hooks
@@ -233,7 +272,7 @@ static SDL_AudioStream *audio_stream(SDL_AudioFormat fmt, int channels, int rate
         audio_state = -1;
         if (!getenv("P1_NOAUDIO") && (!headless || getenv("P1_AUDIO")) && SDL_InitSubSystem(SDL_INIT_AUDIO)) {
             audio_dev = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, NULL);
-            if (audio_dev) audio_state = 1;
+            if (audio_dev) { audio_state = 1; host_audio_volume(); }
             else fprintf(stderr, "audio: %s\n", SDL_GetError());
         }
     }
@@ -244,4 +283,12 @@ static SDL_AudioStream *audio_stream(SDL_AudioFormat fmt, int channels, int rate
     SDL_AudioStream *s = SDL_CreateAudioStream(&src, &dst);
     if (s && audio_state == 1) SDL_BindAudioStream(audio_dev, s);
     return s;
+}
+
+void host_audio_volume(void) {
+    if (audio_state == 1) SDL_SetAudioDeviceGain(audio_dev, (float)cfg.volume / 100.0f);
+}
+void host_audio_pause(int paused) {
+    if (audio_state != 1) return;
+    if (paused) SDL_PauseAudioDevice(audio_dev); else SDL_ResumeAudioDevice(audio_dev);
 }
