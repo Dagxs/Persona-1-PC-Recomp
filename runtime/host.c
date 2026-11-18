@@ -10,12 +10,68 @@ static SDL_Renderer *renderer;
 static SDL_Texture *frame;
 static int frame_w, frame_h;
 static uint8_t keys[256];
+static uint8_t pad[256];          // keys held by gamepads (see pad_vk)
+
+// ---------------------------------------------------------------- gamepads
+// Besides its configurable keys, Persona always reads a fixed set of keys, each tied to a
+// PlayStation button: arrows = D-pad, Enter = circle (confirm), Esc = cross (cancel), F2 = triangle,
+// F1 = square, Home/End/PgUp/PgDn = L1/L2/R1/R2, Insert = select, Delete = start.
+// Gamepads press those keys. Buttons follow the Japanese PlayStation layout by position (right face
+// button confirms, bottom cancels); P1_PAD_WESTERN=1 swaps them (bottom confirms).
+enum { VK_UP = 0x26, VK_DOWN = 0x28, VK_LEFT = 0x25, VK_RIGHT = 0x27, VK_CIRCLE = 0x0d, VK_CROSS = 0x1b,
+       VK_TRIANGLE = 0x71, VK_SQUARE = 0x70, VK_L1 = 0x24, VK_L2 = 0x23, VK_R1 = 0x21, VK_R2 = 0x22,
+       VK_SELECT = 0x2d, VK_START = 0x2e };
+static int pad_vk(SDL_GamepadButton b) {
+    static int western = -1;
+    if (western < 0) western = getenv("P1_PAD_WESTERN") && atoi(getenv("P1_PAD_WESTERN"));
+    switch (b) {
+    case SDL_GAMEPAD_BUTTON_SOUTH: return western ? VK_CIRCLE : VK_CROSS;
+    case SDL_GAMEPAD_BUTTON_EAST: return western ? VK_CROSS : VK_CIRCLE;
+    case SDL_GAMEPAD_BUTTON_NORTH: return VK_TRIANGLE;
+    case SDL_GAMEPAD_BUTTON_WEST: return VK_SQUARE;
+    case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: return VK_L1;
+    case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: return VK_R1;
+    case SDL_GAMEPAD_BUTTON_BACK: return VK_SELECT;
+    case SDL_GAMEPAD_BUTTON_START: return VK_START;
+    case SDL_GAMEPAD_BUTTON_DPAD_UP: return VK_UP;
+    case SDL_GAMEPAD_BUTTON_DPAD_DOWN: return VK_DOWN;
+    case SDL_GAMEPAD_BUTTON_DPAD_LEFT: return VK_LEFT;
+    case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: return VK_RIGHT;
+    default: return 0;
+    }
+}
+// D-pad buttons, the left stick and the triggers are recomputed from the pad state each time,
+// so several pads and the stick can be used together without one releasing the other's keys.
+static void pad_refresh(void) {
+    int n = 0;
+    SDL_JoystickID *ids = SDL_GetGamepads(&n);
+    uint8_t now[256] = { 0 };
+    for (int k = 0; k < n; k++) {
+        SDL_Gamepad *g = SDL_GetGamepadFromID(ids[k]);
+        if (!g) continue;
+        for (int b = 0; b < SDL_GAMEPAD_BUTTON_COUNT; b++) {
+            int vk = pad_vk((SDL_GamepadButton)b);
+            if (vk && SDL_GetGamepadButton(g, (SDL_GamepadButton)b)) now[vk] = 1;
+        }
+        const int dead = 16000;
+        int lx = SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTX), ly = SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFTY);
+        if (lx < -dead) now[VK_LEFT] = 1;
+        if (lx > dead) now[VK_RIGHT] = 1;
+        if (ly < -dead) now[VK_UP] = 1;
+        if (ly > dead) now[VK_DOWN] = 1;
+        if (SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 16000) now[VK_L2] = 1;
+        if (SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 16000) now[VK_R2] = 1;
+    }
+    SDL_free(ids);
+    memcpy(pad, now, sizeof pad);
+}
 static int headless;
 
 void host_window_create(const char *title) {
     if (window || headless) return;
     if (getenv("P1_HEADLESS")) { headless = 1; return; }
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) rt_fatal("SDL video: %s", SDL_GetError());
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) fprintf(stderr, "gamepads unavailable: %s\n", SDL_GetError());
     (void)title;   // the Japanese title is Shift-JIS; SDL wants UTF-8
     window = SDL_CreateWindow("Megami Ibunroku Persona", 1280, 960, SDL_WINDOW_RESIZABLE);
     if (!window) rt_fatal("SDL window: %s", SDL_GetError());
@@ -81,9 +137,21 @@ static void scripted_keys(void) {
 void host_pump_events(void) {
     scripted_keys();
     if (headless || !window) return;
+    SDL_UpdateGamepads();
+    pad_refresh();
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
+        case SDL_EVENT_GAMEPAD_ADDED: {
+            SDL_Gamepad *g = SDL_OpenGamepad(e.gdevice.which);
+            if (g) fprintf(stderr, "gamepad connected: %s\n", SDL_GetGamepadName(g));
+            break;
+        }
+        case SDL_EVENT_GAMEPAD_REMOVED: {
+            SDL_Gamepad *g = SDL_GetGamepadFromID(e.gdevice.which);
+            if (g) SDL_CloseGamepad(g);
+            break;
+        }
         case SDL_EVENT_QUIT:
             user32_post_close();
             break;
@@ -103,7 +171,7 @@ void host_pump_events(void) {
     }
 }
 
-int host_key_down(int vk) { return vk >= 0 && vk < 256 && keys[vk]; }
+int host_key_down(int vk) { return vk >= 0 && vk < 256 && (keys[vk] || pad[vk]); }
 
 void host_present(const uint32_t *pixels, int w, int h) {
     if (headless || !renderer) return;
