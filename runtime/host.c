@@ -16,14 +16,14 @@ static uint8_t pad[256];          // keys held by gamepads (see pad_vk)
 // Besides its configurable keys, Persona always reads a fixed set of keys, each tied to a
 // PlayStation button: arrows = D-pad, Enter = circle (confirm), Esc = cross (cancel), F2 = triangle,
 // F1 = square, Home/End/PgUp/PgDn = L1/L2/R1/R2, Insert = select, Delete = start.
-// Gamepads press those keys. Buttons follow the Japanese PlayStation layout by position (right face
-// button confirms, bottom cancels); P1_PAD_WESTERN=1 swaps them (bottom confirms).
+// Gamepads press those keys. The bottom face button confirms and the right one cancels;
+// P1_PAD_JAPANESE=1 swaps them to the original Japanese PlayStation layout.
 enum { VK_UP = 0x26, VK_DOWN = 0x28, VK_LEFT = 0x25, VK_RIGHT = 0x27, VK_CIRCLE = 0x0d, VK_CROSS = 0x1b,
        VK_TRIANGLE = 0x71, VK_SQUARE = 0x70, VK_L1 = 0x24, VK_L2 = 0x23, VK_R1 = 0x21, VK_R2 = 0x22,
        VK_SELECT = 0x2d, VK_START = 0x2e };
 static int pad_vk(SDL_GamepadButton b) {
     static int western = -1;
-    if (western < 0) western = getenv("P1_PAD_WESTERN") && atoi(getenv("P1_PAD_WESTERN"));
+    if (western < 0) western = !(getenv("P1_PAD_JAPANESE") && atoi(getenv("P1_PAD_JAPANESE")));
     switch (b) {
     case SDL_GAMEPAD_BUTTON_SOUTH: return western ? VK_CIRCLE : VK_CROSS;
     case SDL_GAMEPAD_BUTTON_EAST: return western ? VK_CROSS : VK_CIRCLE;

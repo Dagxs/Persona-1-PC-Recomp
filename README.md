@@ -22,10 +22,10 @@ Keyboard (the game's own defaults): numpad 8/2/4/6 move, S confirm, Z cancel, W 
 buttons, numpad 7/1/9/3 shoulder buttons, numpad 0 / numpad . select / start. Arrows, Enter
 (confirm) and Esc (cancel) also work. Alt+Enter toggles fullscreen.
 
-Gamepad (any SDL-supported controller): D-pad or left stick moves; buttons follow the Japanese
-PlayStation layout by position: right face button confirms, bottom cancels, top = triangle,
-left = square, bumpers/triggers = L1/R1/L2/R2, Back/Start = select/start.
-Set `P1_PAD_WESTERN=1` to make the bottom button confirm instead.
+Gamepad (any SDL-supported controller): D-pad or left stick moves; bottom face button confirms,
+right face button cancels, top = triangle, left = square, bumpers/triggers = L1/R1/L2/R2,
+Back/Start = select/start. Set `P1_PAD_JAPANESE=1` for the original Japanese layout
+(right button confirms).
 
 Environment: `P1_TRACE=1` logs every Win32 call; `P1_CD` / `P1_SAVE` / `P1_EXE` override paths.
 
