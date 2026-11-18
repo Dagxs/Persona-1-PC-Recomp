@@ -59,8 +59,10 @@ apply to the Windows files directly:
     python tools/install_english.py _tl data/cd data/en
 
 This builds `data/en/` (the story scripts `ADV/E0-E3.BIN` rebuilt with English from your disc's
-own files, plus the translation's variable-width font). The in-game renderer for English text
-(`runtime/vwf.c`) is not finished yet, so the Language option stays on Japanese for now.
+own files, plus the translation's variable-width font). Then pick **Language: English** in the
+launcher. The story dialogue (all four script files, about 7,300 text boxes) is drawn by a
+variable-width text engine (`runtime/vwf.c`), the same design as the PS1 translation's.
+Menus, items, battles, dungeon text, demon talk and movie subtitles are still Japanese.
 
 ## Status
 - [x] Function discovery without relocations (~26k functions, 83% of .text)
@@ -70,7 +72,8 @@ own files, plus the translation's variable-width font). The in-game renderer for
 - [x] DirectShow: MP3 music/effects, MPEG-1 movies
 - [x] Gamepads, launcher, in-game options
 - [ ] Internal resolution above 1x: implemented, quality and speed not yet checked
-- [ ] English dialogue (data done; renderer in progress), then menus, battles, names, subtitles
+- [x] English story dialogue (variable-width font)
+- [ ] English: faster printing (two letters per frame), menus, battles, names, dungeons, subtitles
 - [ ] Play-testing beyond the opening
 
 ## Debugging

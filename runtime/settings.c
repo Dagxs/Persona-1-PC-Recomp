@@ -29,7 +29,11 @@ void settings_load(void) {
     char path[512], line[256];
     path_of(path, sizeof path);
     FILE *f = fopen(path, "r");
-    if (!f) { if (getenv("P1_RENDER_SCALE")) cfg.render_scale = atoi(getenv("P1_RENDER_SCALE")); return; }
+    if (!f) {
+        if (getenv("P1_RENDER_SCALE")) cfg.render_scale = atoi(getenv("P1_RENDER_SCALE"));
+        if (getenv("P1_LANG")) cfg.language = !strcmp(getenv("P1_LANG"), "en") ? LANG_ENGLISH : LANG_JAPANESE;
+        return;
+    }
     while (fgets(line, sizeof line, f)) {
         char *eq = strchr(line, '=');
         if (!eq || line[0] == '#' || line[0] == ';') continue;
@@ -42,6 +46,7 @@ void settings_load(void) {
     }
     fclose(f);
     if (getenv("P1_RENDER_SCALE")) cfg.render_scale = atoi(getenv("P1_RENDER_SCALE"));   // tests
+    if (getenv("P1_LANG")) cfg.language = !strcmp(getenv("P1_LANG"), "en") ? LANG_ENGLISH : LANG_JAPANESE;
     if (cfg.language == LANG_ENGLISH && !settings_english_available()) cfg.language = LANG_JAPANESE;
 }
 

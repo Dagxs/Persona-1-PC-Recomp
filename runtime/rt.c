@@ -147,6 +147,7 @@ int main(int argc, char **argv) {
     if (!MEM) rt_fatal("cannot reserve %u MB of guest memory", MEM_SIZE >> 20);
     const char *exe = getenv("P1_EXE") ? getenv("P1_EXE") : "data/Persona.exe";
     load_image(exe);
+    english_boot();       // Language = English: data/en overlay, script tables, dialogue engine
     build_code_map();
     win32_init(argc, argv);
     fpu_init();

@@ -36,7 +36,19 @@ static int map_path(const char *g, char *out, size_t cap, int *on_cd) {
     *on_cd = 0;
     if ((tmp[0] == CD_LETTER || tmp[0] == CD_LETTER + 32) && tmp[1] == ':') {
         rest = tmp + 2; *on_cd = 1;
-        snprintf(out, cap, "%s/%s", cd_root, *rest == '/' ? rest + 1 : rest);
+        if (*rest == '/') rest++;
+        snprintf(out, cap, "%s/%s", cd_root, rest);
+        // English: a file the overlay replaces (data/en, case-insensitive like the disc) wins
+        extern int english_on;
+        if (english_on) {
+            char en[600], up[512];
+            size_t k = 0;
+            for (; rest[k] && k + 1 < sizeof up; k++) up[k] = (rest[k] >= 'a' && rest[k] <= 'z') ? (char)(rest[k] - 32) : rest[k];
+            up[k] = 0;
+            snprintf(en, sizeof en, "%s/%s", getenv("P1_EN") ? getenv("P1_EN") : "data/en", up);
+            struct stat st;
+            if (stat(en, &st) == 0) snprintf(out, cap, "%s", en);
+        }
     } else if (tmp[1] == ':') {
         rest = tmp + 2;
         if (!strncmp(rest, "/PERSONA/", 9) || !strncmp(rest, "/persona/", 9)) rest += 9;

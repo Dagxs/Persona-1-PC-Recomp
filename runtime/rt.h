@@ -23,6 +23,7 @@ void host_invoke(uint32_t magic);
 extern int rt_trace;
 uint8_t *host_alloc_guest(uint32_t size);
 void load_image(const char *path);
+void english_boot(void);
 guest_fn_t rt_lookup(uint32_t a);
 
 // host-made guest memory

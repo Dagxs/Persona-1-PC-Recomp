@@ -33,6 +33,7 @@ static const char *label(int it, int launcher) {
     }
 }
 
+static int launcher_mode;
 static void value(int it, char *out, size_t cap) {
     switch (it) {
     case IT_FULLSCREEN: snprintf(out, cap, "%s", cfg.fullscreen ? "Fullscreen" : "Window"); break;
@@ -44,10 +45,15 @@ static void value(int it, char *out, size_t cap) {
     case IT_VSYNC: snprintf(out, cap, "%s", cfg.vsync ? "On" : "Off"); break;
     case IT_PAD: snprintf(out, cap, "%s", cfg.pad_japanese ? "Japanese (right confirms)" : "Western (bottom confirms)"); break;
     case IT_VOLUME: snprintf(out, cap, "%d%%", cfg.volume); break;
-    case IT_LANGUAGE:
-        snprintf(out, cap, "%s", cfg.language == LANG_ENGLISH ? "English" :
-                 settings_english_available() ? "Japanese" : "Japanese (no English yet)");
+    case IT_LANGUAGE: {
+        // English is switched on at startup (english.c), so a change in game needs a restart
+        extern int english_on;
+        int pending = !launcher_mode && (cfg.language == LANG_ENGLISH) != (english_on != 0);
+        snprintf(out, cap, "%s%s", cfg.language == LANG_ENGLISH ? "English (story)" :
+                 settings_english_available() ? "Japanese" : "Japanese (English not installed)",
+                 pending ? "  - restart" : "");
         break;
+    }
     case IT_LAUNCHER: snprintf(out, cap, "%s", cfg.show_launcher ? "Show" : "Skip"); break;
     default: out[0] = 0;
     }
@@ -159,6 +165,7 @@ int menu_run(int launcher) {
     SDL_Renderer *r = host_renderer();
     if (!r) return 1;
     R_ = r;
+    launcher_mode = launcher;
     SDL_Texture *bg = launcher ? NULL : host_last_frame();
     SDL_SetRenderLogicalPresentation(r, CW, CH, SDL_LOGICAL_PRESENTATION_LETTERBOX);
     if (bg) SDL_SetTextureScaleMode(bg, SDL_SCALEMODE_LINEAR);
