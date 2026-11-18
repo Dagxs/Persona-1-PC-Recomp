@@ -274,6 +274,12 @@ extern volatile uint32_t rt_fn_of[64];
 extern _Thread_local int rt_tidx;
 #define FN_ENTER(a) (rt_fn_of[rt_tidx] = (a))
 
+// English dialogue engine (runtime/vwf.c), called from the patch points in tools/recomp.py.
+// While vwf_active is 0 the patched code runs the original Japanese paths.
+enum { VWF_ADV };
+extern int vwf_active, vwf_two_byte;
+void vwf_emit(int interp, int name_path);
+
 // direct call to a recompiled function: push the guest return address, run it
 #define CALL(f, ret) do { PUSH32(ret); f(); } while (0)
 void rt_call(uint32_t target, uint32_t ret);   // indirect call (code or magic host function)
