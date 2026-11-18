@@ -81,6 +81,8 @@ scripts key presses; `P1_SHOT=dir` dumps frames; `P1_FRAMES=n` exits after n fra
 adds `P1_WATCH_LO` / `P1_WATCH_LEN`, which report the guest functions that read a memory range.
 
 ## Credits and licences
+This project's code is under the MIT licence (`LICENSE`). It covers the recompiler and runtime
+only: *Persona* and its data belong to their rights holders, and you need your own copy of the game.
 - minimp3 (CC0) and pl_mpeg (MIT) in `third_party/`.
 - English text and font: the PS1 translation above (MIT); its licence and contributors are copied
   into `data/en/` by the installer.
