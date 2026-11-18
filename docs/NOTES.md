@@ -63,8 +63,18 @@ translation's docs (third_party/persona-translation/docs) usually describe the s
 
 ## English (runtime/vwf.c, runtime/english.c, runtime/enpatch.c)
 - Glyph codes 88-E6 = English (ASCII + 0x68); 80-87 = two-byte original glyphs.
-- Patch points in tools/recomp.py (`dialogue_patches`) for all three copies; each copy is
-  switched on separately (`vwf_on[]`), currently only ADV.
+- Patch points in tools/recomp.py (`dialogue_patches`) for all three copies (ADV, B = dungeon,
+  C = 2D town: the PS1 overlays ADV, DNG, S2D); each is switched on by `vwf_on[]` (all three
+  with English: they read the same story files).
+- PS1 data tables: Persona.exe holds the PS1 executable's data in the same order and spacing,
+  PC address = PS1 address - 0x8004442C + 0x5ce258 (items 0x5ce230 = record 0, nicknames,
+  skills 0x5d1b84, Personas, demons, descriptions...). tools/install_english.py rebuilds a
+  stand-in SLPS_005.00 from it for the translation's tools.
+- Small font (names, menus, battle panels): one byte per glyph, 8x12 cells; English through the
+  translation's Latin cells (a-z over rare hiragana) in every copy of the page (2D/, D0?/,
+  ADV/ADVCMD*.BIN, OPEN.BIN, B/BF.BIN compressed). Names from names.bin (english.c).
+- Button prompts: glyphs 0xEA/0xE3/0xEE/0xEC (circle/cross/triangle/square, two-byte codes) are
+  drawn as the button of the device in use (host_button_label).
 - TALK (demon conversations): `0x5257e0`/`0x525810` load `TALK\<name>.BIN` (name table at
   `0x5ca7d8`, 24 bytes per entry) to PS1 RAM `0x801C0000` (host `0x824ff0`) through the loader
   thread; FONT.BIN follows at `0x801E0000`, so a TALK file may be up to 128 KB (the largest
@@ -81,10 +91,18 @@ translation's docs (third_party/persona-translation/docs) usually describe the s
   FieldMsgPrintCodes `0x42dda0`, FieldDecodeGlyph `0x428a70` (font pointer `0x5e110c`, glyph
   image at `[0x5e107c]+0x6da5c`, ink 1, shadow 2 one pixel right and down), LoadImage
   `0x54c380` (ecx rect, edx source), FieldFrame `0x422100`. English: runtime/vwf_field.c.
-- Still to do: TALK (demon conversations; files grow up to 40 %, the PC buffer size is not
-  checked yet, and they may be drawn by the battle text system rather than these
-  interpreters), menus / items / skills (small font, strings inside Persona.exe), battle text
-  (BTLP), the dungeon E-file dialogue (MsgStep copies B/C, `vwf_on[1..2]`), map titles longer
-  than 10 characters (the PS1 patch's map-title hook), the ending poems (MV1E/MV25).
-  Done: story dialogue, movie subtitles and the opening quote. Written but not yet tested in game:
-  dungeon field-script boxes (vwf_field.c) and the dungeon / town dialogue copies (vwf_on[1..2]).
+- Battle text (BTLP: battle messages and the TALK conversations) is NOT found on the PC yet. On
+  the PS1 its interpreter is 0x8007C9E0 with glyph function 0x8007C754(struct, ptr) -> ptr (one
+  16x16 cell per character, LoadImage + DrawSync per cell, its own sprite list). Not the three
+  MsgStep copies, not the field script. Ruled out on the PC: the LoadImage (0x54c380) callers
+  0x515f65 (per-frame battle code), 0x516a6b (TIM loader); the `and r,0xffff; shl r,5` sites
+  0x519b8f / 0x4f2ae2 / 0x4fb055 (equipment stats). Next step: during a battle message, watch
+  reads of FONT.BIN (host 0x844ff0..) with the P1_WATCHREAD build to find the glyph routine.
+- Still to do: battle text and TALK (above; TALK files grow up to 40 %), descriptions (pointer
+  table; PS1 pointers must become PC addresses), race names (copies in the PC overlay code),
+  names longer than 10 glyphs (the PS1 patch's tails), map titles longer than 10 characters,
+  the ending poems in MV1E/MV25, the logo-sheet names of the staff roll.
+  Done: story dialogue, movie subtitles and the opening quote, button prompts.
+  Written but not yet seen in game: dungeon field-script boxes (vwf_field.c), the dungeon / town
+  dialogue copies, item / skill / Persona / demon names and the small-font Latin cells, the
+  ending pages (EXE/END.BIN).
