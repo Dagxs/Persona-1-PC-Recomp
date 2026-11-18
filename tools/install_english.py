@@ -104,6 +104,130 @@ def ending(repo, cd, out, exe):
     shutil.copyfile(os.path.join(repo, 'build', 'EXE', 'END.BIN'), os.path.join(out, 'EXE', 'END.BIN'))
 
 
+# The PS1 main executable's data tables (items, skills, Personas, demons, nicknames) are in
+# Persona.exe's data section in the same order and spacing: PC address = PS1 address + DELTA.
+SLPS_BASE = 0x8000F800                  # PS1 SLPS_005.00 file offset = address - SLPS_BASE
+DELTA = 0x5ce258 - 0x8004442C           # the first item name: PS1 0x8004442C, PC 0x5ce258
+
+
+def fake_slps(repo, exe):
+    """data/psx/SLPS_005.00 for the repo's tools, rebuilt from Persona.exe's copy of the PS1 data
+    tables (the code differs and is left zero; the tools only read the tables)."""
+    sys.path.insert(0, HERE)
+    from image import Image
+    img = Image(exe)
+    lo, hi = 0x80040000, 0x80050000
+    d = bytearray(hi - SLPS_BASE)
+    d[0:8] = b'PS-X EXE'
+    struct.pack_into('<I', d, 0x18, 0x80010000)
+    for va in range(lo, hi):
+        pc = va + DELTA - img.base
+        if 0 <= pc < len(img.mem):
+            d[va - SLPS_BASE] = img.mem[pc]
+    path = os.path.join(repo, 'data', 'psx', 'SLPS_005.00')
+    open(path, 'wb').write(bytes(d))
+    return img
+
+
+def names(repo, out, img):
+    """names.bin: English item, skill, Persona, demon and nickname names, written into the game's
+    tables at startup (runtime/english.c). They are drawn by the original small-font renderer: one
+    byte per glyph, ten glyphs per field (longer names are cut, as the PS1 patch does for items),
+    lowercase through the Latin cells drawn into every copy of the font page (small_font()).
+    Format: "P1NM", u32 count, then {u32 address, u16 length, bytes}."""
+    import toolbelt
+    import slps
+    import personas
+    import demons
+    def enc(t, n=10, end=True):
+        b = bytearray()
+        for c in t:
+            try:
+                b.append(toolbelt.smallfont_char(c))
+            except SystemExit:
+                pass                        # a character the small font lacks
+        b = bytes(b[:n])
+        if len(b) < n:
+            b += (bytes([0xff]) if end else b'') + bytes(n - len(b) - (1 if end else 0))
+        return b
+    def check(addr, n):
+        a = addr - img.base
+        return 0 <= a and a + n <= len(img.mem)
+    patches = []
+    def put(va, b):
+        if check(va + DELTA, len(b)):
+            patches.append((va + DELTA, b))
+    rows = toolbelt.merged_rows('SLPS_005.00')
+    it0, sk0, nk0 = slps.IT_FIRST - SLPS_BASE, slps.SK_FIRST - SLPS_BASE, slps.NK_FIRST - SLPS_BASE
+    for r in rows:
+        t = (r.get('en') or '').strip()
+        if not t:
+            continue
+        pos = int(r['pos'], 16)
+        if it0 <= pos < it0 + slps.IT_STRIDE * slps.IT_COUNT and (pos - it0) % slps.IT_STRIDE == 0:
+            put(pos + SLPS_BASE, enc(t))
+        elif sk0 <= pos < sk0 + slps.SK_STRIDE * slps.SK_COUNT and (pos - sk0) % slps.SK_STRIDE == 0:
+            put(pos + SLPS_BASE, enc(t))
+        elif nk0 <= pos < nk0 + slps.NK_STRIDE * slps.NK_COUNT and (pos - nk0) % slps.NK_STRIDE == 0:
+            put(pos + SLPS_BASE, enc(t[:slps.NK_MAX]))
+    pen = personas.record_en()
+    for k, va, _ja in personas.records():
+        if pen.get(k):
+            put(va, enc(pen[k]))
+    den = demons.record_en()
+    for k, va, _ja in demons.records():
+        if den.get(k):
+            put(va, enc(den[k]))
+    blob = bytearray(b'P1NM') + struct.pack('<I', len(patches))
+    for a, b in patches:
+        blob += struct.pack('<IH', a, len(b)) + b
+    open(os.path.join(out, 'names.bin'), 'wb').write(bytes(blob))
+    print(f'names: {len(patches)} names')
+
+
+def small_font(repo, cd, out):
+    """Latin letters in the small font: the repo draws a..z (and a few punctuation marks) over rare
+    hiragana cells in every copy of the small-font page - map packs (2D/, D0?/), the menu files
+    (ADV/ADVCMD*.BIN, OPEN.BIN) and the battle field data (B/BF.BIN, compressed) - with its small-
+    font VWF kit off: the original renderer then prints English from the name tables."""
+    import glob
+    import features
+    features.on = lambda g: {'SF_VWF': False, 'SF_LATIN': True}.get(g, False)
+    rels = ['ADV/ADVCMD.BIN', 'ADV/ADVCMD0.BIN', 'OPEN.BIN', 'B/BF.BIN']
+    rels += [os.path.relpath(p, cd) for p in glob.glob(os.path.join(cd, '2D', '*.BIN'))]
+    for rel in rels:
+        dst = os.path.join(repo, 'data', 'psx', rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copyfile(os.path.join(cd, rel), dst)
+    import smallfont_pages
+    import smallfont_vwf
+    import btlfont
+    smallfont_pages.main()                  # 2D/ and D0?/ (on top of the English dungeon packs)
+    btlfont.main()
+    page = smallfont_pages.reference()
+    pix = smallfont_vwf.page_indices()[0]
+    prior = smallfont_vwf.page_prior()
+    ref = smallfont_vwf.unpack_page(page)
+    for rel in ('ADV/ADVCMD.BIN', 'ADV/ADVCMD0.BIN', 'OPEN.BIN'):
+        b = bytearray(open(os.path.join(repo, 'data', 'psx', rel), 'rb').read())
+        for at, bpr in smallfont_pages.find_pages(bytes(b), page):
+            old = bytes(b[at:at + bpr * smallfont_pages.ROWS])
+            b[at:at + len(old)] = smallfont_vwf.page_copy(smallfont_vwf.unpack_page(old), ref, pix, bpr * 2,
+                                                          smallfont_pages.ROWS, prior)
+        os.makedirs(os.path.dirname(os.path.join(repo, 'build', rel)), exist_ok=True)
+        open(os.path.join(repo, 'build', rel), 'wb').write(bytes(b))
+    # every changed file goes to the overlay
+    import filecmp
+    n = 0
+    for rel in rels + [os.path.relpath(p, cd) for p in glob.glob(os.path.join(cd, 'D0?', '*.BIN'))]:
+        src = os.path.join(repo, 'build', rel)
+        if os.path.exists(src) and not filecmp.cmp(src, os.path.join(cd, rel), shallow=False):
+            os.makedirs(os.path.dirname(os.path.join(out, rel)), exist_ok=True)
+            shutil.copyfile(src, os.path.join(out, rel))
+            n += 1
+    print(f'small font: Latin cells in {n} files')
+
+
 def main():
     repo = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'third_party', 'persona-translation'))
     cd = os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, 'data', 'cd'))
@@ -140,6 +264,11 @@ def main():
 
     dungeon(repo, cd, out)
     ending(repo, cd, out, os.path.join(os.path.dirname(cd), 'Persona.exe'))
+    exe = os.path.join(os.path.dirname(cd), 'Persona.exe')
+    if os.path.exists(exe):
+        img = fake_slps(repo, exe)
+        small_font(repo, cd, out)
+        names(repo, out, img)
 
     # movie subtitles (the runtime draws them over the movies)
     subs = os.path.join(repo, 'translation', 'manual', 'fmv', 'subtitles.tsv')

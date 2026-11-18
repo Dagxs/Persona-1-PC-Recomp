@@ -36,6 +36,34 @@ static int patch_table(const char *en_dir, const char *name, uint32_t table) {
     return 1;
 }
 
+// names.bin (tools/install_english.py): English item / skill / Persona / demon / nickname names,
+// written over the Japanese ones in the game's tables: "P1NM", u32 count, {u32 address, u16 length,
+// bytes}. Every address must lie in Persona.exe's image.
+static int load_names(const char *en_dir) {
+    char path[600];
+    snprintf(path, sizeof path, "%s/names.bin", en_dir);
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    uint8_t hdr[8];
+    int n = 0;
+    if (fread(hdr, 1, 8, f) == 8 && !memcmp(hdr, "P1NM", 4)) {
+        uint32_t count;
+        memcpy(&count, hdr + 4, 4);
+        for (uint32_t k = 0; k < count; k++) {
+            uint8_t h[6], b[64];
+            if (fread(h, 1, 6, f) != 6) break;
+            uint32_t addr; uint16_t len;
+            memcpy(&addr, h, 4); memcpy(&len, h + 4, 2);
+            if (len > sizeof b || fread(b, 1, len, f) != len) break;
+            if (addr < 0x401000u || addr + len > 0x700000u) continue;
+            for (uint16_t i = 0; i < len; i++) WR8(addr + i, b[i]);
+            n++;
+        }
+    }
+    fclose(f);
+    return n;
+}
+
 void english_boot(void) {
     if (cfg.language != LANG_ENGLISH || !settings_english_available()) return;
     const char *en = path_en();
@@ -48,6 +76,8 @@ void english_boot(void) {
     for (size_t k = 0; k < sizeof SCRIPTS / sizeof SCRIPTS[0]; k++)
         if (!patch_table(en, SCRIPTS[k].file, SCRIPTS[k].table))
             fprintf(stderr, "English: %s/ADV/%s.BIN missing; that part of the script stays Japanese\n", en, SCRIPTS[k].file);
+    int names = load_names(en);
+    if (rt_trace) fprintf(stderr, "English names: %d\n", names);
     english_on = 1;
     vwf_active = 1;
     extern void subtitles_load(void);
