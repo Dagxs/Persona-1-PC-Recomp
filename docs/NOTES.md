@@ -65,6 +65,12 @@ translation's docs (third_party/persona-translation/docs) usually describe the s
 - Glyph codes 88-E6 = English (ASCII + 0x68); 80-87 = two-byte original glyphs.
 - Patch points in tools/recomp.py (`dialogue_patches`) for all three copies; each copy is
   switched on separately (`vwf_on[]`), currently only ADV.
+- TALK (demon conversations): `0x5257e0`/`0x525810` load `TALK\<name>.BIN` (name table at
+  `0x5ca7d8`, 24 bytes per entry) to PS1 RAM `0x801C0000` (host `0x824ff0`) through the loader
+  thread; FONT.BIN follows at `0x801E0000`, so a TALK file may be up to 128 KB (the largest
+  English one is 62 KB). The conversation text is drawn in battle, by the battle text system
+  (the PS1 translation's `vwf_btlp*`), not by the three MsgStep copies: that renderer still has
+  to be found on the PC (trace FONT.BIN reads during a battle with the P1_WATCHREAD build).
 - Still to do: TALK (demon conversations; files grow up to 40 %, the PC buffer size is not
   checked yet, and they may be drawn by the battle text system rather than these
   interpreters), dungeon packs D00-D04 (54 boxes do not fit in place; the PS1 patch redirects
