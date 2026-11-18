@@ -1,0 +1,16 @@
+// Host platform services (SDL3): window, events, keyboard, presentation, audio.
+#pragma once
+#include <stdint.h>
+
+void host_window_create(const char *title);
+void host_message_box(const char *caption, const char *text);
+void host_pump_events(void);
+int host_key_down(int vk);
+// present a 32-bit XRGB frame of w x h pixels (scaled to the window)
+void host_present(const uint32_t *pixels, int w, int h);
+
+uint32_t guest_call(uint32_t fn, int n, const uint32_t *args);
+void user32_post_key(int vk, int down);
+void user32_post_close(void);
+void DestroyWindow_host(uint32_t hwnd);
+extern uint32_t main_hwnd;

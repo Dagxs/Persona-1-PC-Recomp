@@ -9,6 +9,7 @@
 #define MAGIC_BASE 0xf0000000u
 #define MAGIC_EXIT 0xffffffffu         // return address of the process entry point
 #define MAGIC_THREAD_END 0xfffffffeu   // return address of a thread procedure
+#define MAGIC_RET 0xfffffffdu          // return address of host -> guest callbacks
 void host_invoke(uint32_t magic);
 
 // Guest address-space layout (MEM_SIZE = 512 MB)

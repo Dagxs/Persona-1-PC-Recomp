@@ -6,6 +6,7 @@
 
 uint32_t last_error;
 static const char *current_api;
+const char *host_current_api(void) { return current_api; }
 
 // ---------------------------------------------------------------- host functions
 struct api { const char *name; api_fn fn; int nargs; };   // nargs < 0: cdecl (caller pops)
