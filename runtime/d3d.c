@@ -147,14 +147,29 @@ static uint16_t to565(float r, float g, float b) {
     R = R < 0 ? 0 : R > 31 ? 31 : R; G = G < 0 ? 0 : G > 63 ? 63 : G; B = B < 0 ? 0 : B > 31 ? 31 : B;
     return (uint16_t)(R << 11 | G << 5 | B);
 }
+static inline uint32_t to888(float r, float g, float b) {
+    int R = (int)(r * 255.0f + 0.5f), G = (int)(g * 255.0f + 0.5f), B = (int)(b * 255.0f + 0.5f);
+    R = R < 0 ? 0 : R > 255 ? 255 : R; G = G < 0 ? 0 : G > 255 ? 255 : G; B = B < 0 ? 0 : B > 255 ? 255 : B;
+    return (uint32_t)(R << 16 | G << 8 | B);
+}
 static uint32_t vp_Clear(const uint32_t *a) {
     struct viewport *v = com_host(a[0]);
     if (!dev || !dev->target) return DD_OK;
     struct dd_surface *t = dev->target;
     uint16_t c = 0;
+    uint32_t c32 = 0;
     if (v->bg_material && v->bg_material < nmaterials) {
         struct material *m = materials[v->bg_material];
         c = to565(m->r, m->g, m->b);
+        c32 = to888(m->r, m->g, m->b);
+    }
+    if (t->hi) {                              // the screen: clear its high-resolution buffer
+        for (uint32_t k = 0; k < a[1]; k++) {
+            uint32_t r = a[2] + 16 * k;
+            dd_hires_fill(t, (int32_t)RD32(r), (int32_t)RD32(r + 4), (int32_t)RD32(r + 8), (int32_t)RD32(r + 12),
+                          (a[3] & 1u) != 0, c32, (a[3] & 2u) != 0);
+        }
+        return DD_OK;
     }
     for (uint32_t k = 0; k < a[1]; k++) {
         uint32_t r = a[2] + 16 * k;
@@ -321,38 +336,59 @@ static int zpass(uint32_t func, uint16_t z, uint16_t cur) {
     }
 }
 
-static void raster_tri(const struct vtx *v0, const struct vtx *v1, const struct vtx *v2) {
+// Where a draw lands: the screen's high-resolution 32-bit buffer (see ddraw.c), or any other
+// surface at its own size in guest memory (16-bit RGB565).
+struct fb { int w, h, s; uint16_t *p16; uint32_t *p32; size_t pitch; uint16_t *z; size_t zpitch; };
+static int target_fb(struct fb *f) {
     struct dd_surface *t = dev->target;
-    if (!t) return;
+    if (!t) return 0;
+    if (t->hi) {
+        f->s = t->hs; f->w = (int)t->w * t->hs; f->h = (int)t->h * t->hs;
+        f->p32 = t->hi; f->p16 = 0; f->pitch = (size_t)f->w;
+        f->z = t->hiz; f->zpitch = (size_t)f->w;
+    } else {
+        f->s = 1; f->w = (int)t->w; f->h = (int)t->h;
+        f->p16 = (uint16_t *)(MEM + t->pixels); f->p32 = 0; f->pitch = t->pitch / 2;
+        f->z = t->zbuf ? (uint16_t *)(MEM + t->zbuf->pixels) : 0;
+        f->zpitch = t->zbuf ? t->zbuf->pitch / 2 : 0;
+    }
+    return 1;
+}
+
+static void raster_tri(const struct vtx *v0, const struct vtx *v1, const struct vtx *v2) {
+    struct fb F;
+    if (!target_fb(&F)) return;
     float area = (v1->x - v0->x) * (v2->y - v0->y) - (v2->x - v0->x) * (v1->y - v0->y);
     if (area == 0.0f) return;
     uint32_t cull = dev->rs[22];
     // screen y points down, so a positive area is clockwise as seen on screen
     if (cull == 2 && area > 0) return;      // D3DCULL_CW
     if (cull == 3 && area < 0) return;      // D3DCULL_CCW
+    const int S = F.s;
     struct viewport *vp = dev->vp;
-    int32_t cx0 = vp ? vp->x : 0, cy0 = vp ? vp->y : 0;
-    int32_t cx1 = vp ? vp->x + vp->w : (int32_t)t->w, cy1 = vp ? vp->y + vp->h : (int32_t)t->h;
-    if (cx1 > (int32_t)t->w) cx1 = (int32_t)t->w;
-    if (cy1 > (int32_t)t->h) cy1 = (int32_t)t->h;
+    int32_t cx0 = vp ? vp->x * S : 0, cy0 = vp ? vp->y * S : 0;
+    int32_t cx1 = vp ? (vp->x + vp->w) * S : F.w, cy1 = vp ? (vp->y + vp->h) * S : F.h;
+    if (cx1 > F.w) cx1 = F.w;
+    if (cy1 > F.h) cy1 = F.h;
     if (cx0 < 0) cx0 = 0;
     if (cy0 < 0) cy0 = 0;
-    // Exact coverage: vertices snapped to 1/16 pixel, integer edge functions and the top-left
-    // fill rule, so a pixel on an edge shared by two triangles belongs to exactly one of them.
-    // Pixels are sampled at their centres (x + 0.5): sprites magnified 2x then map cleanly to texels.
-    if (area < 0) { const struct vtx *tmp = v1; v1 = v2; v2 = tmp; area = -area; }
-    int64_t X0 = (int64_t)lrintf(v0->x * 16.0f), Y0 = (int64_t)lrintf(v0->y * 16.0f);
-    int64_t X1 = (int64_t)lrintf(v1->x * 16.0f), Y1 = (int64_t)lrintf(v1->y * 16.0f);
-    int64_t X2 = (int64_t)lrintf(v2->x * 16.0f), Y2 = (int64_t)lrintf(v2->y * 16.0f);
+    // Exact coverage: vertices snapped to 1/16 pixel (of the target resolution), integer edge
+    // functions stepped per pixel, and the top-left fill rule, so a pixel on an edge shared by two
+    // triangles belongs to exactly one of them. Pixels are sampled at their centres (x + 0.5).
+    if (area < 0) { const struct vtx *tmp = v1; v1 = v2; v2 = tmp; }
+    const float k16 = 16.0f * (float)S;
+    int64_t X0 = (int64_t)lrintf(v0->x * k16), Y0 = (int64_t)lrintf(v0->y * k16);
+    int64_t X1 = (int64_t)lrintf(v1->x * k16), Y1 = (int64_t)lrintf(v1->y * k16);
+    int64_t X2 = (int64_t)lrintf(v2->x * k16), Y2 = (int64_t)lrintf(v2->y * k16);
     int64_t A = (X1 - X0) * (Y2 - Y0) - (X2 - X0) * (Y1 - Y0);
     if (A <= 0) return;
     // edge k is opposite vertex k: E0 on v1->v2, E1 on v2->v0, E2 on v0->v1
     int64_t ex[3] = { X1, X2, X0 }, ey[3] = { Y1, Y2, Y0 }, fx[3] = { X2, X0, X1 }, fy[3] = { Y2, Y0, Y1 };
-    int64_t bias[3];
+    int64_t bias[3], stepx[3];
     for (int k = 0; k < 3; k++) {
         int64_t dx = fx[k] - ex[k], dy = fy[k] - ey[k];
-        int topleft = (dy == 0 && dx > 0) || dy < 0;
-        bias[k] = topleft ? 0 : -1;
+        bias[k] = ((dy == 0 && dx > 0) || dy < 0) ? 0 : -1;
+        stepx[k] = -dy * 16;
     }
     int64_t minX = X0 < X1 ? (X0 < X2 ? X0 : X2) : (X1 < X2 ? X1 : X2);
     int64_t maxX = X0 > X1 ? (X0 > X2 ? X0 : X2) : (X1 > X2 ? X1 : X2);
@@ -365,46 +401,53 @@ static void raster_tri(const struct vtx *v0, const struct vtx *v1, const struct 
     if (x1 > cx1) x1 = cx1;
     if (y1 > cy1) y1 = cy1;
     if (x0 >= x1 || y0 >= y1) return;
+
     struct dd_surface *tex = dev->rs[1] && dev->rs[1] < ntextures ? textures[dev->rs[1]] : 0;
     int gouraud = dev->rs[9] != 1;          // D3DSHADE_FLAT = 1
-    int zen = dev->rs[7] && t->zbuf, zwrite = dev->rs[14];
+    int zen = dev->rs[7] && F.z, zwrite = dev->rs[14] && F.z;
     int ablend = dev->rs[27];
     uint32_t sb = dev->rs[19], db = dev->rs[20], tb = dev->rs[21];
     if (sb == 12) { sb = 5; db = 6; } else if (sb == 13) { sb = 6; db = 5; }
     int atest = dev->rs[15];
     float aref = (float)(dev->rs[24] & 255) / 255.0f;
-    uint32_t afunc = dev->rs[25];
+    uint32_t afunc = dev->rs[25], zfunc = dev->rs[23];
 
     float inv = 1.0f / (float)A;
-    // perspective-correct attributes: interpolate attr*w and w (w = rhw)
+    // perspective-correct attributes: interpolate attr*w and w (w = rhw); flat 2D quads (equal w)
+    // skip the per-pixel divide
     const struct vtx *V[3] = { v0, v1, v2 };
     float wq[3], uq[3], vq[3];
     for (int k = 0; k < 3; k++) { wq[k] = V[k]->w; uq[k] = V[k]->u * wq[k]; vq[k] = V[k]->v * wq[k]; }
+    int affine = wq[0] == wq[1] && wq[1] == wq[2];
+    if (affine) for (int k = 0; k < 3; k++) { uq[k] = V[k]->u; vq[k] = V[k]->v; }
 
     for (int32_t y = y0; y < y1; y++) {
-        int64_t PY = (int64_t)y * 16 + 8;     // sample at the pixel centre
-        uint16_t *row = (uint16_t *)(MEM + t->pixels + (uint32_t)y * t->pitch);
-        uint16_t *zrow = zen || zwrite ? (t->zbuf ? (uint16_t *)(MEM + t->zbuf->pixels + (uint32_t)y * t->zbuf->pitch) : 0) : 0;
-        for (int32_t x = x0; x < x1; x++) {
-            int64_t PX = (int64_t)x * 16 + 8, E[3];
-            int inside = 1;
-            for (int k = 0; k < 3; k++) {
-                E[k] = (fx[k] - ex[k]) * (PY - ey[k]) - (fy[k] - ey[k]) * (PX - ex[k]);
-                if (E[k] + bias[k] < 0) { inside = 0; break; }
-            }
-            if (!inside) continue;
+        int64_t PY = (int64_t)y * 16 + 8, PX = (int64_t)x0 * 16 + 8, E[3];
+        for (int k = 0; k < 3; k++) E[k] = (fx[k] - ex[k]) * (PY - ey[k]) - (fy[k] - ey[k]) * (PX - ex[k]);
+        uint16_t *row16 = F.p16 ? F.p16 + (size_t)y * F.pitch : 0;
+        uint32_t *row32 = F.p32 ? F.p32 + (size_t)y * F.pitch : 0;
+        uint16_t *zrow = F.z ? F.z + (size_t)y * F.zpitch : 0;
+        for (int32_t x = x0; x < x1; x++, E[0] += stepx[0], E[1] += stepx[1], E[2] += stepx[2]) {
+            if (E[0] + bias[0] < 0 || E[1] + bias[1] < 0 || E[2] + bias[2] < 0) continue;
             float e0 = (float)E[0] * inv, e1 = (float)E[1] * inv, e2 = (float)E[2] * inv;
-            float z = e0 * v0->z + e1 * v1->z + e2 * v2->z;
-            uint16_t zi = (uint16_t)(z <= 0 ? 0 : z >= 1 ? 65535 : (int)(z * 65535.0f));
-            if (zen && zrow && !zpass(dev->rs[23], zi, zrow[x])) continue;
+            uint16_t zi = 0;
+            if (zen || zwrite) {
+                float z = e0 * v0->z + e1 * v1->z + e2 * v2->z;
+                zi = (uint16_t)(z <= 0 ? 0 : z >= 1 ? 65535 : (int)(z * 65535.0f));
+                if (zen && !zpass(zfunc, zi, zrow[x])) continue;
+            }
             float c[4];   // a r g b
             if (gouraud) {
                 c[0] = e0 * v0->a + e1 * v1->a + e2 * v2->a; c[1] = e0 * v0->r + e1 * v1->r + e2 * v2->r;
                 c[2] = e0 * v0->g + e1 * v1->g + e2 * v2->g; c[3] = e0 * v0->b + e1 * v1->b + e2 * v2->b;
             } else { c[0] = v0->a; c[1] = v0->r; c[2] = v0->g; c[3] = v0->b; }
             if (tex) {
-                float w = e0 * wq[0] + e1 * wq[1] + e2 * wq[2];
-                float u = (e0 * uq[0] + e1 * uq[1] + e2 * uq[2]) / w, vv = (e0 * vq[0] + e1 * vq[1] + e2 * vq[2]) / w;
+                float u, vv;
+                if (affine) { u = e0 * uq[0] + e1 * uq[1] + e2 * uq[2]; vv = e0 * vq[0] + e1 * vq[1] + e2 * vq[2]; }
+                else {
+                    float w = e0 * wq[0] + e1 * wq[1] + e2 * wq[2];
+                    u = (e0 * uq[0] + e1 * uq[1] + e2 * uq[2]) / w; vv = (e0 * vq[0] + e1 * vq[1] + e2 * vq[2]) / w;
+                }
                 float tx[4];
                 if (!sample(tex, u, vv, tx)) continue;
                 switch (tb) {
@@ -426,14 +469,22 @@ static void raster_tri(const struct vtx *v0, const struct vtx *v1, const struct 
                 if (!pass) continue;
             }
             if (ablend) {
-                uint16_t d = row[x];
-                float dst[4] = { 1.0f, (float)(d >> 11) / 31.0f, (float)((d >> 5) & 63) / 63.0f, (float)(d & 31) / 31.0f };
+                float dst[4];
+                dst[0] = 1.0f;
+                if (row32) {
+                    uint32_t d = row32[x];
+                    dst[1] = (float)((d >> 16) & 255) / 255.0f; dst[2] = (float)((d >> 8) & 255) / 255.0f; dst[3] = (float)(d & 255) / 255.0f;
+                } else {
+                    uint16_t d = row16[x];
+                    dst[1] = (float)(d >> 11) / 31.0f; dst[2] = (float)((d >> 5) & 63) / 63.0f; dst[3] = (float)(d & 31) / 31.0f;
+                }
                 float out[4];
                 for (int k = 1; k < 4; k++) out[k] = c[k] * blend_factor(sb, c, dst, k) + dst[k] * blend_factor(db, c, dst, k);
                 c[1] = out[1]; c[2] = out[2]; c[3] = out[3];
             }
-            row[x] = to565(c[1], c[2], c[3]);
-            if (zwrite && zrow) zrow[x] = zi;
+            if (row32) row32[x] = to888(c[1], c[2], c[3]);
+            else row16[x] = to565(c[1], c[2], c[3]);
+            if (zwrite) zrow[x] = zi;
         }
     }
 }

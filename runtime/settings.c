@@ -6,12 +6,13 @@
 #include <sys/stat.h>
 
 struct settings cfg = {
-    .fullscreen = 0, .window_scale = 2, .integer_scale = 0, .smooth = 0, .vsync = 1,
+    .fullscreen = 0, .window_scale = 2, .render_scale = 2, .integer_scale = 0, .smooth = 0, .vsync = 1,
     .pad_japanese = 0, .volume = 100, .language = LANG_JAPANESE, .show_launcher = 1,
 };
 
 static const struct { const char *key; int *val; int lo, hi; } FIELDS[] = {
     { "fullscreen", &cfg.fullscreen, 0, 1 }, { "window_scale", &cfg.window_scale, 1, 4 },
+    { "render_scale", &cfg.render_scale, 1, 4 },
     { "integer_scale", &cfg.integer_scale, 0, 1 }, { "smooth", &cfg.smooth, 0, 1 },
     { "vsync", &cfg.vsync, 0, 1 }, { "pad_japanese", &cfg.pad_japanese, 0, 1 },
     { "volume", &cfg.volume, 0, 100 }, { "language", &cfg.language, 0, 1 },
@@ -28,7 +29,7 @@ void settings_load(void) {
     char path[512], line[256];
     path_of(path, sizeof path);
     FILE *f = fopen(path, "r");
-    if (!f) return;
+    if (!f) { if (getenv("P1_RENDER_SCALE")) cfg.render_scale = atoi(getenv("P1_RENDER_SCALE")); return; }
     while (fgets(line, sizeof line, f)) {
         char *eq = strchr(line, '=');
         if (!eq || line[0] == '#' || line[0] == ';') continue;
@@ -40,6 +41,7 @@ void settings_load(void) {
             }
     }
     fclose(f);
+    if (getenv("P1_RENDER_SCALE")) cfg.render_scale = atoi(getenv("P1_RENDER_SCALE"));   // tests
     if (cfg.language == LANG_ENGLISH && !settings_english_available()) cfg.language = LANG_JAPANESE;
 }
 

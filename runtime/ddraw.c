@@ -4,6 +4,7 @@
 #include "com.h"
 #include "ddraw.h"
 #include "host.h"
+#include "settings.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -51,6 +52,7 @@ static void read_pixfmt(uint32_t p, struct pixfmt *f) {
 }
 
 // ---------------------------------------------------------------- surfaces
+static void hires_update(struct dd_surface *s);
 static struct dd_surface *surf_of(uint32_t obj) { return com_host(obj); }
 
 static struct dd_surface *surface_new(uint32_t w, uint32_t h, const struct pixfmt *f, uint32_t caps) {
@@ -89,6 +91,7 @@ static uint32_t dd_CreateSurface(const uint32_t *a) {
         if (flags & 0x20u && RD32(d + 20)) {            // flipping chain with a back buffer
             uint32_t bc = (caps & ~(DDSCAPS_PRIMARYSURFACE | DDSCAPS_FRONTBUFFER)) | DDSCAPS_BACKBUFFER | DDSCAPS_VIDEOMEMORY;
             s->back = surface_new(640, 480, &PF_565, bc);
+            hires_update(s->back);
         }
     } else {
         if (caps & DDSCAPS_ZBUFFER) caps |= DDSCAPS_VIDEOMEMORY;
@@ -180,9 +183,70 @@ static void rect_of(uint32_t p, struct dd_surface *s, int32_t *r) {
     if (p) { r[0] = (int32_t)RD32(p); r[1] = (int32_t)RD32(p + 4); r[2] = (int32_t)RD32(p + 8); r[3] = (int32_t)RD32(p + 12); }
     else { r[0] = 0; r[1] = 0; r[2] = (int32_t)s->w; r[3] = (int32_t)s->h; }
 }
+// any surface pixel as 0xRRGGBB
+static uint32_t px_xrgb(struct dd_surface *s, uint32_t v) {
+    if (s->fmt.pal8) {
+        const uint32_t *pal = dd_palette_entries(s->palette);
+        uint32_t e = pal ? pal[v & 255] : v * 0x010101u;
+        return ((e & 255) << 16) | (e & 0xff00u) | ((e >> 16) & 255);
+    }
+    uint32_t m[3] = { s->fmt.r, s->fmt.g, s->fmt.b }, out = 0;
+    for (int k = 0; k < 3; k++) {
+        if (!m[k]) continue;
+        int sh = __builtin_ctz(m[k]);
+        uint32_t mx = m[k] >> sh, c = (v & m[k]) >> sh;
+        out |= (c * 255u / mx) << (16 - 8 * k);
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------- the high-resolution screen
+// (Re)allocate the screen's host buffers when the internal resolution setting changes.
+static void hires_update(struct dd_surface *s) {
+    int want = cfg.render_scale < 1 ? 1 : cfg.render_scale > 4 ? 4 : cfg.render_scale;
+    if (s->hi && s->hs == want) return;
+    free(s->hi); free(s->hiz);
+    size_t n = (size_t)s->w * want * (size_t)s->h * want;
+    s->hi = calloc(n, 4);
+    s->hiz = malloc(n * 2);
+    memset(s->hiz, 0xff, n * 2);
+    s->hs = want;
+}
+void dd_hires_fill(struct dd_surface *s, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int color, uint32_t xrgb, int depth) {
+    int S = s->hs, W = (int)s->w * S, H = (int)s->h * S;
+    x0 *= S; y0 *= S; x1 *= S; y1 *= S;
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > W) x1 = W;
+    if (y1 > H) y1 = H;
+    for (int32_t y = y0; y < y1; y++) {
+        if (color) { uint32_t *r = s->hi + (size_t)y * W; for (int32_t x = x0; x < x1; x++) r[x] = xrgb; }
+        if (depth) { uint16_t *z = s->hiz + (size_t)y * W; for (int32_t x = x0; x < x1; x++) z[x] = 0xffff; }
+    }
+}
+// a blit onto the screen, done again into its high-resolution buffer
+static void blit_hi(struct dd_surface *d, const int32_t *dr, struct dd_surface *s, const int32_t *sr, int key) {
+    int S = d->hs, W = (int)d->w * S, H = (int)d->h * S;
+    int32_t dw = (dr[2] - dr[0]) * S, dh = (dr[3] - dr[1]) * S, sw = sr[2] - sr[0], sh = sr[3] - sr[1];
+    if (dw <= 0 || dh <= 0 || sw <= 0 || sh <= 0) return;
+    for (int32_t y = 0; y < dh; y++) {
+        int32_t dy = dr[1] * S + y, sy = sr[1] + (int32_t)((int64_t)y * sh / dh);
+        if (dy < 0 || dy >= H || sy < 0 || sy >= (int32_t)s->h) continue;
+        uint32_t *row = d->hi + (size_t)dy * W;
+        for (int32_t x = 0; x < dw; x++) {
+            int32_t dx = dr[0] * S + x, sx = sr[0] + (int32_t)((int64_t)x * sw / dw);
+            if (dx < 0 || dx >= W || sx < 0 || sx >= (int32_t)s->w) continue;
+            uint32_t v = px_get(s, (uint32_t)sx, (uint32_t)sy);
+            if (key && v >= s->ck_src_lo && v <= s->ck_src_hi) continue;
+            row[dx] = px_xrgb(s, v);
+        }
+    }
+}
+
 static void blit(struct dd_surface *d, const int32_t *dr, struct dd_surface *s, const int32_t *sr, int key) {
     int32_t dw = dr[2] - dr[0], dh = dr[3] - dr[1], sw = sr[2] - sr[0], sh = sr[3] - sr[1];
     if (dw <= 0 || dh <= 0 || sw <= 0 || sh <= 0) return;
+    if (d->hi) blit_hi(d, dr, s, sr, key);
     for (int32_t y = 0; y < dh; y++) {
         int32_t dy = dr[1] + y, sy = sr[1] + (int32_t)((int64_t)y * sh / dh);
         if (dy < 0 || dy >= (int32_t)d->h || sy < 0 || sy >= (int32_t)s->h) continue;
@@ -201,6 +265,7 @@ static uint32_t surf_Blt(const uint32_t *a) {
     int32_t dr[4]; rect_of(a[1], d, dr);
     if (flags & 0x400u) {                         // DDBLT_COLORFILL
         uint32_t c = RD32(a[5] + 80);
+        if (d->hi) dd_hires_fill(d, dr[0], dr[1], dr[2], dr[3], 1, px_xrgb(d, c), 0);
         for (int32_t y = dr[1] < 0 ? 0 : dr[1]; y < dr[3] && y < (int32_t)d->h; y++)
             for (int32_t x = dr[0] < 0 ? 0 : dr[0]; x < dr[2] && x < (int32_t)d->w; x++) px_put(d, (uint32_t)x, (uint32_t)y, c);
         return DD_OK;
@@ -208,6 +273,8 @@ static uint32_t surf_Blt(const uint32_t *a) {
     if (flags & 0x800u && !a[2]) {                // DDBLT_DEPTHFILL on a z-buffer
         uint32_t c = RD32(a[5] + 80);
         for (uint32_t y = 0; y < d->h; y++) for (uint32_t x = 0; x < d->w; x++) WR16(d->pixels + y * d->pitch + 2 * x, c);
+        if (dd_primary && dd_primary->back && dd_primary->back->zbuf == d && dd_primary->back->hi)
+            dd_hires_fill(dd_primary->back, 0, 0, (int32_t)d->w, (int32_t)d->h, 0, 0, 1);
         return DD_OK;
     }
     if (!a[2]) rt_fatal("Blt without a source, flags %x", flags);
@@ -243,7 +310,15 @@ void dd_present(struct dd_surface *s) {
 uint32_t frame_counter;
 static uint32_t surf_Flip(const uint32_t *a) {
     struct dd_surface *s = surf_of(a[0]);
-    dd_present(s->back ? s->back : s);
+    struct dd_surface *b = s->back ? s->back : s;
+    if (b->hi) {
+        int W = (int)b->w * b->hs, H = (int)b->h * b->hs;
+        host_present(b->hi, W, H);
+        host_pump_events();
+        frame_counter++;
+        dump_frame_if_requested(b->hi, W, H);
+        hires_update(b);                  // the internal resolution may have changed in the menu
+    } else dd_present(b);
     rt_yield();
     return DD_OK;
 }

@@ -27,7 +27,15 @@ struct dd_surface {
     int ck_src_set;
     uint32_t ck_src_lo, ck_src_hi;
     void *palette;
+    // The screen (the flip chain's back buffer) is also kept on the host at hs times the size in
+    // 32-bit colour: Direct3D draws, clears and blits land there, and Flip presents it.
+    uint32_t *hi;
+    uint16_t *hiz;                   // its z-buffer at the same resolution
+    int hs;
 };
+
+void dd_hires_fill(struct dd_surface *s, int32_t x0, int32_t y0, int32_t x1, int32_t y1,
+                   int color, uint32_t xrgb, int depth);
 
 struct dd_surface *dd_surface_of(uint32_t obj);
 struct dd_surface *dd_new_surface(uint32_t w, uint32_t h);

@@ -6,6 +6,7 @@ enum { LANG_JAPANESE, LANG_ENGLISH };
 struct settings {
     int fullscreen;      // 0 window, 1 fullscreen (desktop resolution)
     int window_scale;    // window size as a multiple of 640x480: 1..4
+    int render_scale;    // internal resolution as a multiple of 640x480: 1..4
     int integer_scale;   // 1: only whole-number scale factors (pixel-perfect), 0: fill the window
     int smooth;          // 1: bilinear filtering, 0: sharp pixels
     int vsync;

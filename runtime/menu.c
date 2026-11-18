@@ -13,13 +13,14 @@
 #define CW 960
 #define CH 720
 
-enum { IT_FULLSCREEN, IT_SCALE, IT_INTEGER, IT_FILTER, IT_VSYNC, IT_PAD, IT_VOLUME, IT_LANGUAGE, IT_LAUNCHER,
+enum { IT_FULLSCREEN, IT_SCALE, IT_RENDER, IT_INTEGER, IT_FILTER, IT_VSYNC, IT_PAD, IT_VOLUME, IT_LANGUAGE, IT_LAUNCHER,
        IT_GO, IT_QUIT, IT_COUNT };
 
 static const char *label(int it, int launcher) {
     switch (it) {
     case IT_FULLSCREEN: return "Display mode";
     case IT_SCALE: return "Window size";
+    case IT_RENDER: return "Internal resolution";
     case IT_INTEGER: return "Scaling";
     case IT_FILTER: return "Filter";
     case IT_VSYNC: return "VSync";
@@ -36,6 +37,8 @@ static void value(int it, char *out, size_t cap) {
     switch (it) {
     case IT_FULLSCREEN: snprintf(out, cap, "%s", cfg.fullscreen ? "Fullscreen" : "Window"); break;
     case IT_SCALE: snprintf(out, cap, "%dx  (%d x %d)", cfg.window_scale, 640 * cfg.window_scale, 480 * cfg.window_scale); break;
+    case IT_RENDER: snprintf(out, cap, "%dx  (%d x %d)%s", cfg.render_scale, 640 * cfg.render_scale, 480 * cfg.render_scale,
+                             cfg.render_scale == 1 ? "  original" : ""); break;
     case IT_INTEGER: snprintf(out, cap, "%s", cfg.integer_scale ? "Pixel-perfect" : "Fill screen (4:3)"); break;
     case IT_FILTER: snprintf(out, cap, "%s", cfg.smooth ? "Smooth" : "Sharp pixels"); break;
     case IT_VSYNC: snprintf(out, cap, "%s", cfg.vsync ? "On" : "Off"); break;
@@ -55,6 +58,7 @@ static int change(int it, int dir) {
     switch (it) {
     case IT_FULLSCREEN: cfg.fullscreen = !cfg.fullscreen; return 1;
     case IT_SCALE: cfg.window_scale = (cfg.window_scale - 1 + dir + 4) % 4 + 1; return 1;
+    case IT_RENDER: cfg.render_scale = (cfg.render_scale - 1 + dir + 4) % 4 + 1; return 1;
     case IT_INTEGER: cfg.integer_scale = !cfg.integer_scale; return 1;
     case IT_FILTER: cfg.smooth = !cfg.smooth; return 1;
     case IT_VSYNC: cfg.vsync = !cfg.vsync; return 1;
@@ -87,7 +91,7 @@ static void rect(float x, float y, float w, float h, uint8_t r, uint8_t g, uint8
     SDL_RenderFillRect(R_, &f);
 }
 
-#define ROW_Y(k) (184.0f + 40.0f * (float)(k) + ((k) >= IT_GO ? 24.0f : 0.0f))
+#define ROW_Y(k) (176.0f + 38.0f * (float)(k) + ((k) >= IT_GO ? 24.0f : 0.0f))
 #define ROW_X 96.0f
 #define ROW_W 768.0f
 #define VAL_X (ROW_X + 352.0f)
