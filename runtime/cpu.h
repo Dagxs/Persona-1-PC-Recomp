@@ -290,6 +290,7 @@ uint32_t dng_spill(uint32_t p);
 extern int vwf_btl_on;
 void vwf_btl_glyph(void);
 void vwf_btl_str16(void);
+uint32_t btl_text(uint32_t p);   // a battle string -> its English (or itself)
 
 // direct call to a recompiled function: push the guest return address, run it
 #define CALL(f, ret) do { PUSH32(ret); f(); } while (0)

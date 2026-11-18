@@ -234,6 +234,26 @@ def talk(repo, cd, out):
     print(f'talk: {n} files')
 
 
+def battle_text(repo, out, img):
+    """btl_text.bin: English battle messages, negotiation lines, story-battle dialogue and action
+    names, matched to their strings in Persona.exe (tools/btl_map.py). The runtime hands the
+    battle text system the English when it starts reading one of those strings (vwf_btl.c).
+    Format: "P1BT", u32 count, then {u32 PC address, u32 length, bytes}."""
+    import toolbelt
+    import etext
+    import vwf_wrap
+    import btl_map
+    rows = {int(r['pos'], 16): r for r in toolbelt.merged_rows('BTLP')}
+    manual = {r['pos']: r for r in toolbelt.read_manual('BTLP')}
+    data = [(a - img.base, e - img.base) for (nm, a, e, ch) in img.sections
+            if not ch & 0x20000000 and nm.startswith('.data')]
+    found = btl_map.build(img.mem, img.base, data, rows, manual, etext, vwf_wrap)
+    blob = bytearray(b'P1BT') + struct.pack('<I', len(found))
+    for a in sorted(found):
+        blob += struct.pack('<II', a, len(found[a])) + found[a]
+    open(os.path.join(out, 'btl_text.bin'), 'wb').write(bytes(blob))
+
+
 def descriptions(repo, img):
     """Skill and item descriptions (the one-line help of the menus): the repo's descs tool re-packs
     the English into the PS1 string zone and rewrites the pointer table; Persona.exe holds the same
@@ -355,6 +375,7 @@ def main():
         img = fake_slps(repo, exe)
         small_font(repo, cd, out)
         names(repo, out, img)
+        battle_text(repo, out, img)
 
     # movie subtitles (the runtime draws them over the movies)
     subs = os.path.join(repo, 'translation', 'manual', 'fmv', 'subtitles.tsv')

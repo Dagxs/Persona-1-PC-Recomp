@@ -16,6 +16,9 @@
 // Codes: 00-7F one-byte glyph, 80-87 xx two-byte glyph, 88-E6 English (ASCII + 0x68).
 #include "rt.h"
 #include "host.h"
+#include "paths.h"
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 int vwf_btl_on;           // English battle text on
@@ -205,11 +208,12 @@ void vwf_btl_glyph(void) {
 // cell to x = (desc.x + 0x1c0 + 2 * cell) * 2, y = desc.y + 0x150; the caller owns the sprites. With
 // English on the string is composed at real widths and every cell it covers is queued.
 #define S16_RING 256              // cells of upload buffers, reused round robin (queued until the frame ends)
+uint32_t btl_text(uint32_t p);
 static uint32_t s16_ring;
 static int s16_next;
 
 void vwf_btl_str16(void) {
-    uint32_t desc = ECX, p = EDX;
+    uint32_t desc = ECX, p = btl_text(EDX);
     static uint8_t row[16][BOX_W + 32];
     memset(row, 0, sizeof row);
     if (!s16_ring) s16_ring = hostobj_alloc(S16_RING * 128);
@@ -256,4 +260,46 @@ void vwf_btl_str16(void) {
         rt_call(F_QUEUE, MAGIC_RET);
     }
     EAX = a; ECX = c; EDX = d;
+}
+
+// ---------------------------------------------------------------- English strings
+// data/en/btl_text.bin (tools/btl_map.py): {PC address of a battle string, its English}. When the
+// interpreter (0x52fd6d, every text struct) or the command renderer starts reading one of those
+// strings, it reads the English copy instead; the original bytes stay (the compiler stores
+// identical strings once, and other code may share them).
+static struct btl_str { uint32_t pc, en; } *btl_strs;
+static int nbtl_strs;
+
+void btl_text_load(void) {
+    char path[1200];
+    snprintf(path, sizeof path, "%s/btl_text.bin", path_en());
+    FILE *f = fopen(path, "rb");
+    if (!f) return;
+    uint8_t hdr[8];
+    uint32_t n = 0;
+    if (fread(hdr, 1, 8, f) == 8 && !memcmp(hdr, "P1BT", 4)) memcpy(&n, hdr + 4, 4);
+    if (n > 8192) n = 0;
+    btl_strs = calloc(n ? n : 1, sizeof *btl_strs);
+    static uint8_t buf[4096];
+    uint32_t prev = 0;
+    for (uint32_t k = 0; btl_strs && k < n; k++) {
+        uint32_t h[2];
+        if (fread(h, 4, 2, f) != 2 || h[1] > sizeof buf || fread(buf, 1, h[1], f) != h[1] || h[0] <= prev) break;
+        uint32_t en = hostobj_alloc(h[1] + 4);
+        for (uint32_t i = 0; i < h[1]; i++) WR8(en + i, buf[i]);
+        btl_strs[nbtl_strs].pc = prev = h[0];
+        btl_strs[nbtl_strs++].en = en;
+    }
+    fclose(f);
+    if (rt_trace) fprintf(stderr, "battle text: %d strings\n", nbtl_strs);
+}
+
+uint32_t btl_text(uint32_t p) {
+    int lo = 0, hi = nbtl_strs - 1;
+    while (lo <= hi) {
+        int m = (lo + hi) / 2;
+        if (btl_strs[m].pc == p) return btl_strs[m].en;
+        if (btl_strs[m].pc < p) lo = m + 1; else hi = m - 1;
+    }
+    return p;
 }
