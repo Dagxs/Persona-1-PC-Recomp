@@ -11,7 +11,10 @@ static struct { int kind; void *obj; } handles[MAXH];
 uint32_t handle_new(int kind, void *obj) {
     for (int k = 1; k < MAXH; k++)
         if (!handles[k].kind) { handles[k].kind = kind; handles[k].obj = obj; return 0x100u + 4u * (uint32_t)k; }
-    rt_fatal("out of handles");
+    int count[8] = { 0 };
+    for (int k = 1; k < MAXH; k++) count[handles[k].kind & 7]++;
+    rt_fatal("out of handles (files %d, events %d, threads %d, heaps %d, finds %d, modules %d, keys %d)",
+             count[1], count[2], count[3], count[4], count[5], count[6], count[7]);
 }
 void *handle_get(uint32_t h, int kind) {
     uint32_t k = (h - 0x100u) / 4u;

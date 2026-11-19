@@ -274,6 +274,8 @@ static uint32_t graph_Release(const uint32_t *a) {
     for (int k = 0; k < ngraphs; k++)
         if (graphs[k] == g) { graphs[k] = graphs[--ngraphs]; break; }
     for (int k = 0; k < 5; k++) com_free(objs[k]);
+    int thread_close(uint32_t h);
+    thread_close(g->event_handle);
     if (g->stream) SDL_DestroyAudioStream(g->stream);
     free(g->pcm);
     free(g);
