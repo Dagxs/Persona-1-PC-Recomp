@@ -210,6 +210,7 @@ def names(repo, out, img):
     patches += fixed_tables(repo, img)
     patches += descriptions(repo, img)
     patches += menu_text(img, 'cells')
+    patches += choices(img)[1]
     blob = bytearray(b'P1NM') + struct.pack('<I', len(patches))
     for a, b in patches:
         blob += struct.pack('<IH', a, len(b)) + b
@@ -344,6 +345,48 @@ def battle_text(repo, out, img):
     open(os.path.join(out, 'btl_text.bin'), 'wb').write(bytes(blob))
 
 
+def choices(img):
+    """The dialogue choices (the options after <FF0E> in event boxes; the translation's
+    choices.py): a table of 32 {u32 string pointer, rows, cols, width, 0} in Persona.exe, 4 bytes
+    after the PS1 address 0x8004D760 + DELTA, pointing at the Japanese options. Returns ({PC string address:
+    English bytes} for msg_text.bin, [(PC address, bytes)] for the table's layout bytes)."""
+    import toolbelt
+    import etext
+    import choices as ch
+    mem = bytes(img.mem)
+    table = ch.TABLE + DELTA - img.base
+    en_of = {}
+    for r in toolbelt.merged_rows('SLPS_005.00'):
+        t = (r.get('en') or '').strip()
+        if t:
+            en_of[int(r['pos'], 16)] = t
+    # The PC laid the option strings out on its own (shifted by up to some tens of bytes against the
+    # PS1), in the same order: the k-th PC string (by address) is the k-th translation row from the
+    # first one on. layout() checks each pairing's option count against the table.
+    ptrs = [struct.unpack_from('<I', mem, table + 8 * k + 4)[0] for k in range(ch.COUNT)]
+    pcs = sorted({p for p in ptrs if 0 <= p - img.base - table + 0x400 < 0x400})   # the strings precede the table
+    ps = sorted(q for q in en_of if min(pcs) - DELTA - SLPS_BASE <= q < table + img.base - DELTA - SLPS_BASE)
+    if len(ps) != len(pcs):
+        print(f'choices: {len(pcs)} strings in Persona.exe but {len(ps)} rows; skipped')
+        return {}, []
+    rank = dict(zip(pcs, ps))
+    msgs, patches = {}, []
+    for k in range(ch.COUNT):
+        params = mem[table + 8 * k + 8:table + 8 * k + 12]     # the PC entry: the pointer, then the layout bytes
+        ptr = ptrs[k]
+        en = en_of.get(rank.get(ptr), '')
+        if not etext.has_text(en):
+            continue
+        try:
+            text, rn, cn, w = ch.layout(dict(idx=k, params=params), en)
+        except Exception as e:
+            print(f'choices: {k}: {e}')
+            continue
+        msgs[ptr] = etext.encode(text)
+        patches.append((img.base + table + 8 * k + 8, bytes([rn, cn, w])))
+    print(f'choices: {len(msgs)} of {ch.COUNT}')
+    return msgs, patches
+
 def menu_text(img, kind):
     """tools/menu_text.tsv: this project's English for menu text the translation leaves in
     Japanese. kind 'msg' -> {PC address: English bytes} for msg_text.bin; kind 'cells' ->
@@ -425,6 +468,7 @@ def msg_text(repo, out, img):
                 found[img.base + i] = b
             i = mem.find(ja, i + 1)
     found.update(menu_text(img, 'msg'))
+    found.update(choices(img)[0])
     blob = bytearray(b'P1MS') + struct.pack('<I', len(found))
     for a in sorted(found):
         blob += struct.pack('<II', a, len(found[a])) + found[a]

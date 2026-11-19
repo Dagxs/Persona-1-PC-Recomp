@@ -131,7 +131,11 @@ translation's docs (third_party/persona-translation/docs) usually describe the s
   the ADV copy is `0x478b50(ecx text)`. Menu text the translation leaves Japanese is in
   tools/menu_text.tsv (sort prompt, spell-card and config prompts, the SORT list's swap label);
   the Equip screen's stat labels are art in the font page (menu_gfx.label_rows, now also applied
-  to ADVCMD). The config screen's option words (はやい/おそい/なし, する/しない) and the
+  to ADVCMD). Dialogue choices (<FF0E>): the table of 32 {u32 pointer, rows, cols, width, 0} sits 4
+  bytes after 0x8004D760 + DELTA (`0x5d7590`); the option strings are laid out a little differently
+  from the PS1 (same order), so the installer pairs them by order and sends them through
+  msg_text.bin with the translation's layout (choices.py); the layout bytes go in names.bin. Seen
+  in the opening (Bet on Mark / Bet on Brown). The config screen's option words (はやい/おそい/なし, する/しない) and the
   heal-mode labels are still Japanese (their layout is by fixed cells).
 - Tests: P1_TURBO=n runs the game clock n ms per call and ends movies at once, so P1_KEYS scripts
   land on the same frames each run (new game: Enter taps to the name screen, then Right, Enter,
