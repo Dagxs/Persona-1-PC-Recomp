@@ -97,6 +97,8 @@ void english_boot(void) {
     // the dungeon field script's boxes (vwf_field.c): packs from data/en, long boxes spilled
     extern void dng_spill_load(void);
     dng_spill_load();
+    extern void map_titles_load(void);
+    map_titles_load();
     vwf_field_on = 1;
     // the battle text system (vwf_btl.c): messages, Triangle help, demon conversations
     vwf_btl_on = !getenv("P1_BTLVWF") || atoi(getenv("P1_BTLVWF"));

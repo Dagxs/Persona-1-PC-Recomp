@@ -205,3 +205,66 @@ uint32_t dng_spill(uint32_t p) {
     }
     return p;
 }
+
+// ---------------------------------------------------------------- map titles
+// MapDrawName (0x4079e0, ecx = map index) copies the pack's 10-cell name field (20 bytes) to the
+// message cells 0x5e0ae4, starts them as a script (0x4208b0) and sets the title strip. Names longer
+// than 10 characters keep their Japanese field in the pack; with English on, the field is looked up
+// in data/en/map_titles.bin and the full English shown instead, the strip hugging its width (the PS1
+// patch's dng/map_title.asm).
+#define MT_CELLS 0x5e0ae4u
+#define MT_RECT  0x573edcu
+#define MT_FLAGS 0x5e4cf8u
+#define MT_INIT  0x4208b0u
+#define MT_CX    0xaa
+static struct map_title { uint8_t key[20]; uint16_t px, len; uint8_t text[40]; } *mts;
+static int nmts;
+
+void map_titles_load(void) {
+    char path[1200];
+    snprintf(path, sizeof path, "%s/map_titles.bin", path_en());
+    FILE *f = fopen(path, "rb");
+    if (!f) return;
+    uint8_t hdr[8];
+    uint32_t n = 0;
+    if (fread(hdr, 1, 8, f) == 8 && !memcmp(hdr, "P1MT", 4)) memcpy(&n, hdr + 4, 4);
+    if (n > 1024) n = 0;
+    mts = calloc(n ? n : 1, sizeof *mts);
+    for (uint32_t k = 0; mts && k < n; k++) {
+        struct map_title *m = &mts[nmts];
+        if (fread(m->key, 1, 20, f) != 20 || fread(&m->px, 2, 1, f) != 1 || fread(&m->len, 2, 1, f) != 1) break;
+        if (m->len > sizeof m->text || m->len < 2 || fread(m->text, 1, m->len, f) != m->len) break;
+        if (m->text[m->len - 2] != 0xff || m->text[m->len - 1] != 0x01 || m->px > 0xa0) continue;
+        nmts++;
+    }
+    fclose(f);
+    if (rt_trace) fprintf(stderr, "map titles: %d\n", nmts);
+}
+
+// 0x4079e0 with English on: 1 = shown here, 0 = the original code runs
+int map_title(void) {
+    if (!nmts) return 0;
+    uint32_t base = RD32(0x5daaa8u);
+    int32_t map = (int16_t)ECX;
+    uint32_t field = RD32(base + 0x1dd008u + (uint32_t)map * 4u) + base + 0x1dd000u;
+    const struct map_title *m = 0;
+    for (int k = 0; k < nmts && !m; k++) {
+        int i = 0;
+        while (i < 20 && RD8(field + (uint32_t)i) == mts[k].key[i]) i++;
+        if (i == 20) m = &mts[k];
+    }
+    if (!m) return 0;
+    for (uint32_t i = 0; i < 0x22; i++) WR8(MT_CELLS + i, 0);
+    for (uint32_t i = 0; i < m->len; i++) WR8(MT_CELLS + i, m->text[i]);
+    uint32_t a = EAX, c = ECX, d = EDX;
+    ECX = MT_CELLS;
+    EDX = 0;
+    rt_call(MT_INIT, MAGIC_RET);
+    EAX = a; ECX = c; EDX = d;
+    WR16(MT_RECT, (uint16_t)(MT_CX - m->px / 2));
+    WR16(MT_RECT + 2, 0x12);
+    WR16(MT_RECT + 4, m->px);
+    WR16(MT_RECT + 6, 0x10);
+    WR32(MT_FLAGS, RD32(MT_FLAGS) | 0x10u);
+    return 1;
+}

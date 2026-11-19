@@ -521,6 +521,10 @@ PATCHES[0x42da00] = ['if (vwf_field_on) { vwf_field_put(); ESP += 4u; return; }'
 PATCHES[0x42cdd3] = ['if (vwf_field_on) ESI = dng_spill(ESI);',
                      'R[0] = (R[0] & 0xffffff00u) | (uint8_t)(RD8((uint32_t)(R[6])));']
 
+# MapDrawName: long dungeon map titles (runtime/vwf_field.c; the PS1 patch's dng/map_title.asm)
+PATCHES[0x4079e0] = ['if (vwf_field_on && vwf_on[VWF_B] && map_title()) { ESP += 4u; return; }',
+                     'R[0] = (uint32_t)(RD32((uint32_t)(0x5daaa8u)));']
+
 # The battle text system's glyph function (PS1 BTLP 0x8007C754; runtime/vwf_btl.c).
 PATCHES[0x52fbb0] = ['if (vwf_btl_on) { vwf_btl_glyph(); ESP += 4u; return; }',
                      '{ uint32_t t = R[1]; PUSH32(t); }']

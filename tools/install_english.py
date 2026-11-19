@@ -206,6 +206,48 @@ def names(repo, out, img):
     print(f'names: {len(patches)} names')
 
 
+def map_titles(repo, cd, out):
+    """map_titles.bin: dungeon map titles longer than the 10-cell field (the PS1 patch's
+    dng/map_title.asm). The map packs keep those floors' Japanese; MapDrawName (0x4079e0) looks the
+    field's 20 bytes up and shows the full English (runtime/vwf_field.c).
+    Format: "P1MT", u32 count, then {20-byte field, u16 width px, u16 length, English bytes + FF 01}."""
+    import glob
+    import dngnames
+    import vwf_wrap
+    import toolbelt
+    table = {}
+    for f in sorted(glob.glob(os.path.join(cd, 'D0?', 'D*M.BIN'))):
+        rel = os.path.relpath(f, cd).replace(os.sep, '/')
+        orig = open(f, 'rb').read()
+        built_path = os.path.join(out, rel)
+        built = open(built_path, 'rb').read() if os.path.exists(built_path) else orig
+        try:
+            rows = toolbelt.merged_rows(rel[:-4])
+        except SystemExit:
+            continue
+        for r in rows:
+            en = (r.get('en') or '').strip()
+            if len(en) <= dngnames.SLOTS:
+                continue                    # fits the field itself
+            pos = int(r['pos'], 16)
+            key = orig[pos:pos + 20]
+            if len(key) != 20 or built[pos:pos + 20] != key:
+                continue                    # the pack's field was rewritten: not ours to match
+            try:
+                blob = dngnames.vwf_bytes(en)
+            except SystemExit:
+                continue
+            px = vwf_wrap.text_width(en)
+            if len(blob) - 2 > 0x20 or px > 0xA0:
+                continue
+            table.setdefault(key, (px, blob))
+    out_b = bytearray(b'P1MT') + struct.pack('<I', len(table))
+    for key, (px, blob) in sorted(table.items()):
+        out_b += key + struct.pack('<HH', px, len(blob)) + blob
+    open(os.path.join(out, 'map_titles.bin'), 'wb').write(bytes(out_b))
+    print(f'map titles: {len(table)} long titles')
+
+
 def talk(repo, cd, out):
     """Demon conversations: TALK/*.BIN are the PS1 files (loaded to PS1 RAM 0x801C0000, FONT.BIN
     at 0x801E0000 above them, so a file may grow to 128 KB). The repo rebuilds them in English
@@ -428,6 +470,7 @@ def main():
         f.write(blob)
 
     dungeon(repo, cd, out)
+    map_titles(repo, cd, out)
     talk(repo, cd, out)
     ending(repo, cd, out, os.path.join(os.path.dirname(cd), 'Persona.exe'))
     exe = os.path.join(os.path.dirname(cd), 'Persona.exe')

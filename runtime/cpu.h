@@ -286,6 +286,7 @@ void vwf_field_put(void);
 extern const uint32_t VWF_PS_GLYPH[4];
 int vwf_button_action(uint32_t code, int two_byte);   // a PlayStation button glyph: 0-3, else -1
 uint32_t dng_spill(uint32_t p);
+int map_title(void);   // long dungeon map titles (vwf_field.c)
 // the battle text system (runtime/vwf_btl.c)
 extern int vwf_btl_on;
 void vwf_btl_glyph(void);
