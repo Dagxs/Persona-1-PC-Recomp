@@ -1,0 +1,19 @@
+# English for menu text the PS1 translation leaves in Japanese (it is in the overlays' data, which
+# the Windows port compiled into Persona.exe). tools/install_english.py menu_text() finds every
+# copy of the Japanese in the exe.
+#   kind msg     : a dialogue-interpreter message (16 px font), redirected like msg_text.bin
+#   (the Japanese may be given as hex:bytes where the font table has no single character for a glyph)
+#   kind inplace : a 16 px string other code copies into a message; English in its own bytes
+#   kind cells:N : a small-font label of N cells written into a menu map; replaced in place
+#                  (padded with spaces; it must fit in N cells)
+# kind	japanese	english
+msg	前詰め処理を行いますか？<FF01>	Sort the items to close the gaps?<FF01>
+msg	スペルカードがありません<FF01>	You have no spell cards.<FF01>
+msg	スペルカード削除<FF01>	Delete a spell card<FF01>
+msg	hex:5b707f8f0608162eff01	Command confirmation<FF01>
+msg	hex:54537f8f5400526773ff01	Window animation<FF01>
+cells:9	いれかえるアイテム	Swap item
+inplace	攻撃<FF01>	Atk<FF01>
+inplace	命中<FF01>	Hit<FF01>
+inplace	防御<FF01>	Def<FF01>
+inplace	回避<FF01>	Eva<FF01>

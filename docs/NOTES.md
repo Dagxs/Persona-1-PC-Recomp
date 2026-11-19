@@ -124,9 +124,15 @@ translation's docs (third_party/persona-translation/docs) usually describe the s
 - Still cut at 10 glyphs: names in battle (BTLP panels and the insert buffers `0x6391e0..`, 24 bytes
   each), the Persona status bar and Persona Data bar (sprite rows, not maps), and any menu that
   copies map cells instead of writing them. The debug menus' strings (BTLP 0x800DD000..) and the
-  battle rows btl_map.py cannot find stay Japanese. Untranslated system text seen in the hospital:
-  the examine message 何もないようだ, the item sort prompt 前詰め処理を行いますか？, the Equip
-  screen's いれかえるアイテム and its 攻撃/命中/防御/回避 labels.
+  battle rows btl_map.py cannot find stay Japanese.
+- Overlay messages (runtime/msg_text.c, data/en/msg_text.bin): ADV/DNG/S2D keep some messages in
+  their own data, compiled into Persona.exe; matched from the first release's overlays and read in
+  English by the interpreters' per-glyph read (`0x478f42` / `0x420c05` / `0x4e1a45`). MsgOpen of
+  the ADV copy is `0x478b50(ecx text)`. Menu text the translation leaves Japanese is in
+  tools/menu_text.tsv (sort prompt, spell-card and config prompts, the SORT list's swap label);
+  the Equip screen's stat labels are art in the font page (menu_gfx.label_rows, now also applied
+  to ADVCMD). The config screen's option words (はやい/おそい/なし, する/しない) and the
+  heal-mode labels are still Japanese (their layout is by fixed cells).
 - Tests: P1_TURBO=n runs the game clock n ms per call and ends movies at once, so P1_KEYS scripts
   land on the same frames each run (new game: Enter taps to the name screen, then Right, Enter,
   F2, Enter for each field, Insert, Enter, Up, Enter; F1 opens the field menu). P1_SFLOG logs the

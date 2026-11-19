@@ -209,6 +209,7 @@ def names(repo, out, img):
     open(os.path.join(out, 'name_map.bin'), 'wb').write(bytes(nmap))
     patches += fixed_tables(repo, img)
     patches += descriptions(repo, img)
+    patches += menu_text(img, 'cells')
     blob = bytearray(b'P1NM') + struct.pack('<I', len(patches))
     for a, b in patches:
         blob += struct.pack('<IH', a, len(b)) + b
@@ -343,6 +344,47 @@ def battle_text(repo, out, img):
     open(os.path.join(out, 'btl_text.bin'), 'wb').write(bytes(blob))
 
 
+def menu_text(img, kind):
+    """tools/menu_text.tsv: this project's English for menu text the translation leaves in
+    Japanese. kind 'msg' -> {PC address: English bytes} for msg_text.bin; kind 'cells' ->
+    [(PC address, bytes)] in-place small-font labels for names.bin."""
+    import etext
+    import toolbelt
+    mem = bytes(img.mem)
+    msgs, cells = {}, []
+    for line in open(os.path.join(HERE, 'menu_text.tsv'), encoding='utf-8'):
+        if line.startswith('#') or not line.strip():
+            continue
+        k, ja, en = line.rstrip(chr(10)).split(chr(9))
+        jb = bytes.fromhex(ja[4:]) if ja.startswith('hex:') else etext.encode(ja, end=None)
+        hits = []
+        i = mem.find(jb)
+        while i >= 0:
+            # in place: only a string start, never another string's ending (a message redirect
+            # only takes effect where a read starts, so it may keep every copy)
+            if k == 'msg' or mem[i - 1] == 0 or mem[i - 2] == 0xff:
+                hits.append(i)
+            i = mem.find(jb, i + 1)
+        if not hits:
+            print(f'menu text: not in Persona.exe: {ja}')
+        if k == 'msg':
+            eb = etext.encode(en, end=None)
+            for i in hits:
+                msgs[img.base + i] = eb
+        elif k == 'inplace':                # a 16 px string other code copies: English in its bytes
+            eb = etext.encode(en, end=None)
+            if len(eb) > len(jb):
+                sys.exit(f'menu text: {en!r} does not fit in place of {ja}')
+            cells += [(img.base + i, eb) for i in hits]
+        else:
+            n = int(k.split(':')[1])
+            eb = bytes(toolbelt.smallfont_char(c) for c in en)
+            if len(eb) > n:
+                sys.exit(f'menu text: {en!r} is longer than {n} cells')
+            eb += bytes(n - len(eb))
+            cells += [(img.base + i, eb) for i in hits]
+    return msgs if kind == 'msg' else cells
+
 def msg_text(repo, out, img):
     """msg_text.bin: English for the messages the PS1 overlays ADV, DNG and S2D keep in their own
     data (the town's remarks, "There seems to be nothing here.", save and Persona prompts), which
@@ -382,6 +424,7 @@ def msg_text(repo, out, img):
             if mem[i - 1] == 0 or mem[i - 2] == 0xff:      # a string start
                 found[img.base + i] = b
             i = mem.find(ja, i + 1)
+    found.update(menu_text(img, 'msg'))
     blob = bytearray(b'P1MS') + struct.pack('<I', len(found))
     for a in sorted(found):
         blob += struct.pack('<II', a, len(found[a])) + found[a]
@@ -496,6 +539,7 @@ def small_font(repo, cd, out):
     import smallfont_pages
     import smallfont_vwf
     import btlfont
+    import menu_gfx
     smallfont_pages.main()                  # 2D/ and D0?/ (on top of the English dungeon packs)
     btlfont.main()
     page = smallfont_pages.reference()
@@ -508,6 +552,7 @@ def small_font(repo, cd, out):
             old = bytes(b[at:at + bpr * smallfont_pages.ROWS])
             b[at:at + len(old)] = smallfont_vwf.page_copy(smallfont_vwf.unpack_page(old), ref, pix, bpr * 2,
                                                           smallfont_pages.ROWS, prior)
+            menu_gfx.label_rows(b, at, bpr, page)  # the stat labels (攻撃 -> ATK...) as in the map packs
         os.makedirs(os.path.dirname(os.path.join(repo, 'build', rel)), exist_ok=True)
         open(os.path.join(repo, 'build', rel), 'wb').write(bytes(b))
     # every changed file goes to the overlay
