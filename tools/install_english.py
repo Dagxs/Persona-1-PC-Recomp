@@ -207,6 +207,19 @@ def names(repo, out, img):
         if code < 256 and not nmap[code]:
             nmap[code] = ord(ch)
     open(os.path.join(out, 'name_map.bin'), 'wb').write(bytes(nmap))
+    # fw_map.bin: the 16 px font's full-width Latin glyphs (what the name entry types, two-byte
+    # codes) -> ASCII, so a typed name is drawn in the English font: {u16 glyph, u8 ASCII}
+    import etext
+    fw = bytearray()
+    for i in range(26):
+        fw += struct.pack('<HB', etext.char2g[chr(0xFF21 + i)], 0x41 + i)
+        fw += struct.pack('<HB', etext.char2g[chr(0xFF41 + i)], 0x61 + i)
+    for i in range(10):
+        fw += struct.pack('<HB', etext.char2g[chr(0xFF10 + i)], 0x30 + i)
+    for c, a in (('．', '.'), ('’', "'"), ('－', '-'), ('！', '!'), ('？', '?'), ('／', '/'), ('：', ':'), ('＆', '&')):
+        if c in etext.char2g:
+            fw += struct.pack('<HB', etext.char2g[c], ord(a))
+    open(os.path.join(out, 'fw_map.bin'), 'wb').write(bytes(fw))
     patches += fixed_tables(repo, img)
     patches += descriptions(repo, img)
     patches += menu_text(img, 'cells')

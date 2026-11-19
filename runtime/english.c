@@ -84,6 +84,14 @@ void english_boot(void) {
         FILE *f = fopen(path, "rb");
         if (f) { if (fread(vwf_name_ascii, 1, 256, f) != 256) memset(vwf_name_ascii, 0, 256); fclose(f); }
     }
+    {                                       // typed names: full-width Latin glyphs -> ASCII
+        extern uint8_t vwf_fw_ascii[0x800];
+        snprintf(path, sizeof path, "%s/fw_map.bin", en);
+        FILE *f = fopen(path, "rb");
+        uint8_t e[3];
+        while (f && fread(e, 1, 3, f) == 3) { unsigned g = e[0] | e[1] << 8; if (g < 0x800) vwf_fw_ascii[g] = e[2]; }
+        if (f) fclose(f);
+    }
     if (rt_trace) fprintf(stderr, "English names: %d\n", names);
     english_on = 1;
     vwf_active = 1;

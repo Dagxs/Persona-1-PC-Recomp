@@ -144,6 +144,8 @@ void vwf_btl_glyph(void) {
         code = vwf_name_ascii[code] + ENGLISH_BIAS;
         two = 0;
     }
+    extern uint8_t vwf_fw_ascii[0x800];                  // a typed name's full-width Latin letter
+    if (two && vwf_fw_ascii[code & 0x7ffu]) { code = vwf_fw_ascii[code & 0x7ffu] + ENGLISH_BIAS; two = 0; }
 
     int cell = (int)RD32(st + T_CELL);
     if (cell < 0 || cell >= MAX_CELLS) { EAX = next; return; }   // the interpreter pages first

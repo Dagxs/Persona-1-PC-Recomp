@@ -35,6 +35,7 @@ int vwf_two_byte;    // the glyph being drawn came from a two-byte code (for the
 // hiragana codes...). Where a name is copied into a message, its glyph code -> ASCII (0 = none):
 // install_english.py writes the table from the translation's own small-font encoder.
 uint8_t vwf_name_ascii[256];
+uint8_t vwf_fw_ascii[0x800];        // the 16 px font's full-width Latin (typed names) -> ASCII
 
 // ---------------------------------------------------------------- the interpreters' data
 // Each copy of the interpreter has its own FONT.BIN pointer, VRAM upload queue and map routine.
@@ -180,6 +181,10 @@ void vwf_emit(int interp, int name_path) {
         }
     } else if (name_path && (vwf_two_byte ? code & 0x7ffu : code) < 256 && vwf_name_ascii[vwf_two_byte ? code & 0x7ffu : code]) {
         glyph_of(vwf_name_ascii[vwf_two_byte ? code & 0x7ffu : code] + ENGLISH_BIAS, 0, &gs[0]);
+        adv = gs[0].adv;
+        ng = 1;
+    } else if (vwf_two_byte && vwf_fw_ascii[code & 0x7ffu]) {      // a typed name's Latin letter
+        glyph_of(vwf_fw_ascii[code & 0x7ffu] + ENGLISH_BIAS, 0, &gs[0]);
         adv = gs[0].adv;
         ng = 1;
     } else {

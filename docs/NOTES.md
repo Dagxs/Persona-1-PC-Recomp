@@ -140,6 +140,14 @@ translation's docs (third_party/persona-translation/docs) usually describe the s
   msg_text.bin with the translation's layout (choices.py); the layout bytes go in names.bin. Seen
   in the opening (Bet on Mark / Bet on Brown). The config screen's option words (はやい/おそい/なし, する/しない) and the
   heal-mode labels are still Japanese (their layout is by fixed cells).
+- Name entry (the PS1 patch's src/asm/name): keyboard grid `0x5d8940` (4 pages x 6 x 10 u16 glyphs;
+  page 2 = A-Z | a-z), sprite layout table `0x5d8558` (the PS1 NAME.BIN 0x3F28 table, identical),
+  page byte `0x657f98`, caret column / row `0x657fd0` / `0x657fd2`, keyboard draw `0x53b540`,
+  page store `0x53aa9f`, caret placement `0x53a163`. Labels and the closed tab column are in
+  NAMEDT.BIN (data/en). Typed names keep the 16 px font's full-width glyphs; fw_map.bin draws them
+  in the English font (dialogue and battle text). The nickname is stored as each glyph's low byte
+  (`0x539191`), which the small font's Latin cells match. Names stay 5 / 5 / 8 letters (the PS1
+  patch's 8-letter family and given names change the stored form; not done).
 - Tests: P1_TURBO=n runs the game clock n ms per call and ends movies at once, so P1_KEYS scripts
   land on the same frames each run (new game: Enter taps to the name screen, then Right, Enter,
   F2, Enter for each field, Insert, Enter, Up, Enter; F1 opens the field menu). P1_SFLOG logs the
