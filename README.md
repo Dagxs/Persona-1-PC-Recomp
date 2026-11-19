@@ -1,5 +1,13 @@
 # Persona 1 PC Recomp
 
+## Disclaimer
+This project is mostly Claude doing the work. I am just directing it and testing and there is still heaps to do so please be patient. I don't claim to be an expert I mainly wanted a good way to play the PC port of Persona 1 for myself and figured others may benefit from this too.
+
+If anyone has any problems with that I completely understand, the ps1 version with an emulator still is the best way to play the game entirely, again this is mainly for my personal enjoyment but I see the value it could bring to others too if I share it here.
+
+This is an unofficial fan project, not affiliated with or endorsed by Atlus, SEGA or ASCII.
+No game files are included; you need your own copy of the game.
+
 Static recompilation of the 1999 Japanese Windows port of *Megami Ibunroku Persona*
 (ASCII, `Persona.exe`) into portable C, running on SDL3 instead of DirectX 6 and DirectShow.
 
