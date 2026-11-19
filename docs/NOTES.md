@@ -107,10 +107,28 @@ translation's docs (third_party/persona-translation/docs) usually describe the s
   (own alignment, identical strings stored once); tools/btl_map.py matches the translation's rows
   to them by slot sizes. Descriptions: table of PC pointers at `0x5d48a8` (PS1 0x8004AA7C), read by
   `0x41b885`, `0x473985`, `0x4dc705` (the three MsgStep copies) and `0x4fcd81` (battle help).
-- Still to do: names longer than 10 glyphs (251 of 382 items, 79 skills, 18 Personas, 30 demons
-  are cut): the menus give a name ten fixed 8 px cells, so this needs the PS1 patch's proportional
-  small font (SF_VWF) on the PC renderers and its tail banks in the name copy routines. The debug
-  menus' strings (BTLP 0x800DD000..) and the battle rows btl_map.py cannot find stay Japanese.
+- Menu names (runtime/vwf_menu.c, data/en/sf_names.bin): the menus write names into background
+  maps (40-cell grids of u16 cell indices, 8x12 cells) with TileMapWriteRow `0x421490(ecx src,
+  edx dst, base, count)` - one copy shared by every menu - and libgs' GsSortFastBg `0x5496d0(ecx
+  GsBG, edx GsOT, otz)` turns each cell into a 0x2c-byte textured quad (code 0xF0; vertices at
+  +8/+12/+1C/+24, u/v at +C/+16/+20/+28, clut +10, tpage +1A; work pointer `0xa65288`, draw offset
+  `0xa65330`/`0xa65334`; GsMAP: cellw, cellh, ncellw, ncellh, cells, index). A row whose source is
+  a name (by the head's address in the tables, else by its bytes) is remembered; when its map is
+  drawn and the cells are unchanged, they are hidden for that draw and the whole name is drawn as
+  quads cut to each glyph's ink, squeezed to the field when wider (down to 0.70 for the longest).
+  Seen on the Equip screen. The dialogue inserts (MsgStep item / skill / demon / Persona cases, all
+  ending at `0x47941a` / `0x4210c3` / `0x4e1f03` with edi = the record's head and left = 10) read
+  the whole name from a scratch buffer (written, not yet seen in game).
+- Still cut at 10 glyphs: names in battle (BTLP panels and the insert buffers `0x6391e0..`, 24 bytes
+  each), the Persona status bar and Persona Data bar (sprite rows, not maps), and any menu that
+  copies map cells instead of writing them. The debug menus' strings (BTLP 0x800DD000..) and the
+  battle rows btl_map.py cannot find stay Japanese. Untranslated system text seen in the hospital:
+  the examine message 何もないようだ, the item sort prompt 前詰め処理を行いますか？, the Equip
+  screen's いれかえるアイテム and its 攻撃/命中/防御/回避 labels.
+- Tests: P1_TURBO=n runs the game clock n ms per call and ends movies at once, so P1_KEYS scripts
+  land on the same frames each run (new game: Enter taps to the name screen, then Right, Enter,
+  F2, Enter for each field, Insert, Enter, Up, Enter; F1 opens the field menu). P1_SFLOG logs the
+  menu name rows; P1_SFSWAP=k draws name k in their place.
   Done and seen: story dialogue, movie subtitles, the opening quote, button prompts, the ending
   poems (runtime/poems.c; checked on the decoded movies with P1_POEMTEST).
   Written but not yet seen in game: dungeon field-script boxes and long dungeon map titles

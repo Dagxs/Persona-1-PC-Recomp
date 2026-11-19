@@ -63,7 +63,16 @@ DEF(RegQueryValueExA) {
 }
 
 // ---------------------------------------------------------------- WINMM
-DEF(timeGetTime) { UNUSED_ARGS; return (uint32_t)SDL_GetTicks(); }
+// P1_TURBO=n (tests): a virtual clock that moves n ms on every call, so headless runs reach a
+// scene sooner and scripted keys (P1_KEYS) land on the same frames every run
+DEF(timeGetTime) {
+    UNUSED_ARGS;
+    static int turbo = -1;
+    static uint32_t clock;
+    if (turbo < 0) turbo = getenv("P1_TURBO") ? atoi(getenv("P1_TURBO")) : 0;
+    if (turbo > 0) return clock += (uint32_t)turbo;
+    return (uint32_t)SDL_GetTicks();
+}
 DEF(joyGetNumDevs) { UNUSED_ARGS; return 0; }
 DEF(joyGetDevCapsA) { UNUSED_ARGS; return 165; }    // JOYERR_UNPLUGGED
 DEF(joyGetPosEx) { UNUSED_ARGS; return 167; }

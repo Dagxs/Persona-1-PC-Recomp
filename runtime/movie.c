@@ -207,6 +207,9 @@ void thread_sleep(uint32_t ms);
 static uint32_t sample_Update(const uint32_t *a) {
     struct movie *m = M(a[0]);
     if (!m->video || m->ended) return MS_S_ENDOFSTREAM;
+    static int turbo = -1;                  // P1_TURBO (tests, misc.c): movies end at once
+    if (turbo < 0) turbo = getenv("P1_TURBO") != NULL;
+    if (turbo) { m->ended = 1; return MS_S_ENDOFSTREAM; }
     if (!m->running) { m->running = 1; m->start_ns = SDL_GetTicksNS(); }
     plm_frame_t *f = plm_decode_video(m->video);
     if (!f) { m->ended = 1; return MS_S_ENDOFSTREAM; }

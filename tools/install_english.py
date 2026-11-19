@@ -166,9 +166,12 @@ def names(repo, out, img):
         a = addr - img.base
         return 0 <= a and a + n <= len(img.mem)
     patches = []
-    def put(va, b):
+    full = []                               # (PC address, ten-glyph head, the whole name) for sf_names.bin
+    def put(va, b, t=None):
         if check(va + DELTA, len(b)):
             patches.append((va + DELTA, b))
+            if t is not None:
+                full.append((va + DELTA, b, enc(t, n=64, end=False).rstrip(b'\0')))
     rows = toolbelt.merged_rows('SLPS_005.00')
     it0, sk0, nk0 = slps.IT_FIRST - SLPS_BASE, slps.SK_FIRST - SLPS_BASE, slps.NK_FIRST - SLPS_BASE
     for r in rows:
@@ -177,19 +180,19 @@ def names(repo, out, img):
             continue
         pos = int(r['pos'], 16)
         if it0 <= pos < it0 + slps.IT_STRIDE * slps.IT_COUNT and (pos - it0) % slps.IT_STRIDE == 0:
-            put(pos + SLPS_BASE, enc(t))
+            put(pos + SLPS_BASE, enc(t), t)
         elif sk0 <= pos < sk0 + slps.SK_STRIDE * slps.SK_COUNT and (pos - sk0) % slps.SK_STRIDE == 0:
-            put(pos + SLPS_BASE, enc(t))
+            put(pos + SLPS_BASE, enc(t), t)
         elif nk0 <= pos < nk0 + slps.NK_STRIDE * slps.NK_COUNT and (pos - nk0) % slps.NK_STRIDE == 0:
             put(pos + SLPS_BASE, enc(t[:slps.NK_MAX]))
     pen = personas.record_en()
     for k, va, _ja in personas.records():
         if pen.get(k):
-            put(va, enc(pen[k]))
+            put(va, enc(pen[k]), pen[k])
     den = demons.record_en()
     for k, va, _ja in demons.records():
         if den.get(k):
-            put(va, enc(den[k]))
+            put(va, enc(den[k]), den[k])
     # name_map.bin: the glyph code of each small-font character as it reaches the dialogue and
     # battle text engines (names copied into a message: bytes 80-FF become two-byte codes of the
     # same value) -> its ASCII, so English names are drawn at the English font's widths there
@@ -211,6 +214,38 @@ def names(repo, out, img):
         blob += struct.pack('<IH', a, len(b)) + b
     open(os.path.join(out, 'names.bin'), 'wb').write(bytes(blob))
     print(f'names: {len(patches)} names')
+    sf_names(repo, out, full)
+
+
+def sf_names(repo, out, full):
+    """sf_names.bin: the menus' proportional small font (runtime/vwf_menu.c). The menus write a
+    name's ten-glyph head into a background map (TileMapWriteRow); the runtime finds the whole
+    name - by the head's address in the name tables, or by its bytes when only one name has that
+    head - and draws it proportionally, squeezed when it is wider than the field.
+    Format: "P1SF", 215 glyph metrics (left column << 4 | width, from the shipped font page; the
+    shadow column counts), u32 count, then {u32 address, 10-byte head, u8 length, bytes}."""
+    import tim
+    import menu_gfx
+    d = open(os.path.join(repo, 'build', 'ADV', 'ADVCMD.BIN'), 'rb').read()
+    t = tim.parse(d, menu_gfx.PAGE)
+    page = d[t['at']:t['at'] + 128 * 256]
+    pix = bytearray()
+    for b in page:
+        pix += bytes((b & 15, b >> 4))
+    metrics = bytearray()
+    for g in range(215):
+        r, c = divmod(g, 31)
+        xs = [x for y in range(12) for x in range(8) if pix[(r * 12 + y) * 256 + c * 8 + x]]
+        metrics.append(min(xs) << 4 | (max(xs) + 1 - min(xs)) if xs else 0)
+    seen = {}
+    for a, head, whole in full:
+        seen.setdefault(bytes(head), set()).add(bytes(whole))
+    blob = bytearray(b'P1SF') + metrics + struct.pack('<I', len(full))
+    for a, head, whole in full:
+        blob += struct.pack('<I', a) + bytes(head) + bytes([len(whole)]) + bytes(whole)
+    open(os.path.join(out, 'sf_names.bin'), 'wb').write(bytes(blob))
+    shared = sum(1 for v in seen.values() if len(v) > 1)
+    print(f'sf_names: {len(full)} names, {shared} heads shared by different names')
 
 
 def map_titles(repo, cd, out):

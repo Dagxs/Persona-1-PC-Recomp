@@ -176,11 +176,11 @@ static int vk_of(SDL_Scancode s) {
 // P1_KEYS="frame:vk:down,..." scripts key presses for tests, e.g. "300:83:1,303:83:0" taps S.
 static void scripted_keys(void) {
     static int init, n, k;
-    static uint32_t ev[256][3];
+    static uint32_t ev[8192][3];
     if (!init) {
         init = 1;
         const char *s = getenv("P1_KEYS");
-        while (s && *s && n < 256) {
+        while (s && *s && n < 8192) {
             unsigned f, vk, d;
             if (sscanf(s, "%u:%u:%u", &f, &vk, &d) != 3) break;
             ev[n][0] = f; ev[n][1] = vk; ev[n][2] = d; n++;

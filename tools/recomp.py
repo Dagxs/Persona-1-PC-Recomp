@@ -535,6 +535,17 @@ PATCHES[0x52fd6d] = ['if (vwf_btl_on) WR32(ESI + 8u, btl_text(RD32(ESI + 8u)));'
 PATCHES[0x52f2c0] = ['if (vwf_btl_on) { vwf_btl_str16(); ESP += 4u; return; }',
                      '{ uint32_t t = R[1]; PUSH32(t); }']
 
+# The menus' name rows (runtime/vwf_menu.c): TileMapWriteRow (shared by every menu) and libgs'
+# GsSortFastBg, which draws the background maps the rows are written into.
+PATCHES[0x421490] = ['if (vwf_menu_on) sf_record();',
+                     'R[0] = (uint32_t)(RD32((uint32_t)(R[4] + 0x8u)));']
+PATCHES[0x5496d0] = ['if (vwf_menu_on && sf_sort()) { ESP += 8u; return; }',
+                     '{ uint32_t r = op_sub(R[4], 0x74u, 32); R[4] = (uint32_t)(r); }']
+# ... and the dialogue interpreters' name inserts (after `left = 10`): the whole name
+for k, a in enumerate((0x47941a, 0x4210c3, 0x4e1f03)):
+    PATCHES[a] = [f'if (vwf_menu_on) sf_insert({k});',
+                  '{ uint32_t r = op_or(R[0], 0x4001u, 32); R[0] = (uint32_t)(r); }']
+
 
 def main():
     exe, out = sys.argv[1], sys.argv[2]

@@ -289,6 +289,10 @@ uint32_t dng_spill(uint32_t p);
 int map_title(void);   // long dungeon map titles (vwf_field.c)
 // the battle text system (runtime/vwf_btl.c)
 extern int vwf_btl_on;
+extern int vwf_menu_on;
+void sf_record(void);
+int sf_sort(void);
+void sf_insert(int copy);
 void vwf_btl_glyph(void);
 void vwf_btl_str16(void);
 uint32_t btl_text(uint32_t p);   // a battle string -> its English (or itself)

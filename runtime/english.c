@@ -100,6 +100,10 @@ void english_boot(void) {
     extern void map_titles_load(void);
     map_titles_load();
     vwf_field_on = 1;
+    // names in the menus at their real width, whole (vwf_menu.c); P1_MENUVWF=0 turns it off
+    extern void sf_names_load(void);
+    sf_names_load();
+    vwf_menu_on = !getenv("P1_MENUVWF") || atoi(getenv("P1_MENUVWF"));
     // the battle text system (vwf_btl.c): messages, Triangle help, demon conversations
     vwf_btl_on = !getenv("P1_BTLVWF") || atoi(getenv("P1_BTLVWF"));
     extern void poems_test(void);
