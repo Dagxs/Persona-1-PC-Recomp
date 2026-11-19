@@ -284,3 +284,47 @@ void sf_insert(int copy) {
     WR8(ESI + 0x35u, m->len);
     if (sf_log) fprintf(stderr, "sf_insert: copy %d, name at %08x, %d glyphs\n", copy, m->addr, m->len);
 }
+
+// Battle messages (the BTLP text system, vwf_btl.c): a name insert is copied into one of seven
+// 24-byte slots at 0x6391e0 (0x52e6c0: bytes >= 0x80 get an 0x80 lead; 0x52e6f0: as they are),
+// at most 8 or 10 glyphs, and the reader is pointed at the slot (`mov [esi+0xc], slot`,
+// 0x52f97f..0x52fa03). A long name is also written whole, in the same encoding, to a buffer of
+// our own, and the reader is pointed there while the slot still holds that name's head.
+#define BSLOTS     0x6391e0u
+#define BSLOT_SIZE 0x18u
+#define BSLOT_N    7
+#define BBUF       96u
+static uint32_t bbuf;
+static struct { int on; uint8_t head[4]; } bslot[BSLOT_N];
+
+void btl_name_copy(int lead) {
+    uint32_t dst = ECX, src = EDX;
+    if (dst < BSLOTS || dst >= BSLOTS + BSLOT_N * BSLOT_SIZE || (dst - BSLOTS) % BSLOT_SIZE) return;
+    int k = (int)((dst - BSLOTS) / BSLOT_SIZE);
+    bslot[k].on = 0;
+    if (!nnames) return;
+    const struct name *m = find_name(src);
+    if (!m || m->len <= HEAD) return;
+    if (!bbuf) bbuf = hostobj_alloc(BSLOT_N * BBUF);
+    uint32_t o = bbuf + (uint32_t)k * BBUF, n = 0;
+    for (int i = 0; i < m->len && n + 3 < BBUF; i++) {
+        if (lead && m->text[i] >= 0x80) WR8(o + n++, 0x80);
+        WR8(o + n++, m->text[i]);
+    }
+    WR8(o + n, 0xff);
+    for (int i = 0; i < 4; i++) bslot[k].head[i] = RD8(o + (uint32_t)i);
+    bslot[k].on = 1;
+    if (sf_log) fprintf(stderr, "btl_name_copy: slot %d, name at %08x, %d glyphs\n", k, m->addr, m->len);
+}
+
+// the reader entering a slot: the whole name when the slot still holds its head
+uint32_t btl_name_slot(uint32_t slot) {
+    int k = (int)((slot - BSLOTS) / BSLOT_SIZE);
+    if (k < 0 || k >= BSLOT_N || !bslot[k].on || !bbuf) return slot;
+    for (int i = 0; i < 4; i++)
+        if (RD8(slot + (uint32_t)i) != bslot[k].head[i]) { bslot[k].on = 0; return slot; }
+    return bbuf + (uint32_t)k * BBUF;
+}
+
+// vwf_btl.c: is p inside one of those whole-name buffers?
+int btl_name_buf(uint32_t p) { return bbuf && p >= bbuf && p < bbuf + BSLOT_N * BBUF; }

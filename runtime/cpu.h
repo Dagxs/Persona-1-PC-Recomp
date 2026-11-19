@@ -293,6 +293,8 @@ extern int vwf_menu_on;
 void sf_record(void);
 int sf_sort(void);
 void sf_insert(int copy);
+void btl_name_copy(int lead);
+uint32_t btl_name_slot(uint32_t slot);
 uint32_t msg_text(uint32_t p);
 extern int english_on;
 void vwf_btl_glyph(void);

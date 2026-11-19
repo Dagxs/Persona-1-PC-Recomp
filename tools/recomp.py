@@ -545,6 +545,15 @@ PATCHES[0x5496d0] = ['if (vwf_menu_on && sf_sort()) { ESP += 8u; return; }',
 for a in (0x478f42, 0x420c05, 0x4e1a45):
     PATCHES[a] = ['if (english_on) EDI = msg_text(EDI);',
                   'R[3] = (R[3] & 0xffff0000u) | (uint16_t)(RD8((uint32_t)(R[7])));']
+# Battle name inserts (runtime/vwf_menu.c): the copies into the insert slots, and the reader
+# entering a slot
+PATCHES[0x52e6c0] = ['if (vwf_menu_on && vwf_btl_on) btl_name_copy(1);',
+                     'R[0] = (R[0] & 0xffffff00u) | (uint8_t)(RD8((uint32_t)(R[2])));']
+PATCHES[0x52e6f0] = ['if (vwf_menu_on && vwf_btl_on) btl_name_copy(0);',
+                     'R[0] = (R[0] & 0xffffff00u) | (uint8_t)(RD8((uint32_t)(R[2])));']
+for a, slot in ((0x52f97f, 0x6391e0), (0x52f995, 0x639228), (0x52f9ab, 0x639240), (0x52f9c1, 0x639258),
+                (0x52f9d7, 0x6391f8), (0x52f9ed, 0x639270), (0x52fa03, 0x639210)):
+    PATCHES[a] = [f'WR32(ESI + 0xcu, vwf_menu_on && vwf_btl_on ? btl_name_slot(0x{slot:x}u) : 0x{slot:x}u);']
 # ... and the dialogue interpreters' name inserts (after `left = 10`): the whole name
 for k, a in enumerate((0x47941a, 0x4210c3, 0x4e1f03)):
     PATCHES[a] = [f'if (vwf_menu_on) sf_insert({k});',

@@ -139,7 +139,8 @@ void vwf_btl_glyph(void) {
 
     // a name copied into the message's name buffers (0x52e6c0: 0x6391e0..): English names
     extern uint8_t vwf_name_ascii[256];
-    if (p >= NAME_BUFS && p < NAME_BUFS_END && code < 256 && vwf_name_ascii[code]) {
+    extern int btl_name_buf(uint32_t p);
+    if (((p >= NAME_BUFS && p < NAME_BUFS_END) || btl_name_buf(p)) && code < 256 && vwf_name_ascii[code]) {
         code = vwf_name_ascii[code] + ENGLISH_BIAS;
         two = 0;
     }

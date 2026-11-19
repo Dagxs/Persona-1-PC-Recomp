@@ -121,8 +121,11 @@ translation's docs (third_party/persona-translation/docs) usually describe the s
   the whole name from a scratch buffer (written, not yet seen in game). Record layouts the inserts
   use: item names 0x5ce238 + 32*id, skills 0x5d1b70 + 20*id, demons 0x5cb5cc + 56*id, Personas
   0x5d4f00 + 44*id (the name is 8 bytes into the Persona record: personas.NAME).
-- Still cut at 10 glyphs: names in battle (BTLP panels and the insert buffers `0x6391e0..`, 24 bytes
-  each), the Persona status bar and Persona Data bar (sprite rows, not maps), and any menu that
+- Battle message name inserts (vwf_menu.c): the copies into the seven 24-byte slots at `0x6391e0`
+  (`0x52e6c0` with 0x80 leads, `0x52e6f0` raw) also write a long name whole into a buffer of our
+  own, and the reader's slot pointer (`mov [esi+0xc], slot`, `0x52f97f`..`0x52fa03`) is turned to
+  it while the slot still holds that name's head. Written, not yet seen in a battle.
+- Still cut at 10 glyphs: names in the battle panels (skill / item / demon lists), the Persona status bar and Persona Data bar (sprite rows, not maps), and any menu that
   copies map cells instead of writing them. The debug menus' strings (BTLP 0x800DD000..) and the
   battle rows btl_map.py cannot find stay Japanese.
 - Overlay messages (runtime/msg_text.c, data/en/msg_text.bin): ADV/DNG/S2D keep some messages in
