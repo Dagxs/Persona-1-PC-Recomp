@@ -79,8 +79,8 @@ def ending(repo, cd, out, exe):
     """EXE/END.BIN: the ending's epilogue and staff-roll pages, redrawn in English by the repo's
     endtext.py (in place, same size). It reads the page sector table from the PS1 END.EXE; the
     Windows port keeps the same table in Persona.exe (0x5d7802). The PS1 patch's extra pages (the
-    US localization staff, shown by new roll script steps) and the logo sheet's names (which need
-    END.EXE's crop tables) are left out."""
+    US localization staff, shown by new roll script steps) are left out; the logo sheet's names use
+    the crop table Persona.exe keeps (0x5d81f8)."""
     src = os.path.join(cd, 'EXE', 'END.BIN')
     if not os.path.exists(src) or not os.path.exists(exe):
         return
@@ -97,7 +97,14 @@ def ending(repo, cd, out, exe):
     endtext.end_sectors = lambda image: table
     endtext.end_exe = lambda: b''
     pages = endtext.load_pages
-    endtext.load_pages = lambda: {k: v for k, v in pages().items() if k < endtext.END_SIZE and v[0] != 'l'}
+    # the logo sheet's crop table (END.EXE 0x8009A08C on the PS1) is at 0x5d81f8 in Persona.exe
+    crops = bytes(img.mem[0x5d81f8 - img.base:0x5d81f8 - img.base + 32])
+    logo = crops[:8] == bytes.fromhex('0000680068000000')
+    if logo:
+        endtext.logo_crops = lambda: [(crops[i], crops[8 + i], crops[16 + i], crops[24 + i]) for i in range(8)
+                                      if crops[16 + i] and crops[24 + i]]
+    endtext.load_pages = lambda: {k: v for k, v in pages().items()
+                                  if k < endtext.END_SIZE and (logo or v[0] != 'l')}
     endtext.roll_asm = lambda new_pages: ('', 0)
     endtext.main()
     os.makedirs(os.path.join(out, 'EXE'), exist_ok=True)

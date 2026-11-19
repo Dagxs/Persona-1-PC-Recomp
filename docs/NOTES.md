@@ -108,14 +108,13 @@ translation's docs (third_party/persona-translation/docs) usually describe the s
   to them by slot sizes. Descriptions: table of PC pointers at `0x5d48a8` (PS1 0x8004AA7C), read by
   `0x41b885`, `0x473985`, `0x4dc705` (the three MsgStep copies) and `0x4fcd81` (battle help).
 - Still to do: race names (copies in the PC overlay code), names longer than 10 glyphs (the PS1
-  patch's tails), the ending poems in MV1E/MV25, the
-  logo-sheet names of the staff roll, the battle strings btl_map.py cannot match (164 of 1001)
+  patch's tails), the battle strings btl_map.py cannot match (164 of 1001)
   and the debug menus.
   Done: story dialogue, movie subtitles, the opening quote and the ending poems (runtime/poems.c,
   checked on the decoded movies with P1_POEMTEST), button prompts.
   Written but not yet seen in game: dungeon field-script boxes (vwf_field.c), the dungeon / town
   dialogue copies, item / skill / Persona / demon names and the small-font Latin cells, the
-  ending pages (EXE/END.BIN), descriptions, the whole battle text system (vwf_btl.c, TALK files,
+  ending pages and the staff roll's logo sheet (EXE/END.BIN; crop table at 0x5d81f8), descriptions, the whole battle text system (vwf_btl.c, TALK files,
   btl_text.bin, race names and tags, AUTO modes, long dungeon map titles (MapDrawName 0x4079e0,
   map_titles.bin); P1_BTLVWF=0 turns its engine off, but the English TALK files and descriptions
   then show as wrong glyphs).
