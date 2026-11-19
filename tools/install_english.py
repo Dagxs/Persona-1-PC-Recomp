@@ -438,6 +438,7 @@ def msg_text(repo, out, img):
     bytes}."""
     import toolbelt
     import etext
+    import vwf_wrap
     found, groups = {}, {}
     for name in ('ADV', 'DNG', 'S2D'):
         path = os.path.join(repo, 'data', 'psx', name + '.BIN')
@@ -447,12 +448,17 @@ def msg_text(repo, out, img):
         psx = open(path, 'rb').read()
         for r in toolbelt.merged_rows(name):
             en = (r.get('en') or '').strip()
-            if not en.endswith('<FF01>'):
-                continue                    # fixed-size labels (the race tables: fixed_tables())
             p = int(r['pos'], 16)
             e = psx.find(bytes([0xff, 0x01]), p, p + 800)
             if e < 0:
                 continue
+            if not en.endswith('<FF01>'):
+                # a label: the town map's place names (S2D), FF01-terminated on the disc but kept
+                # without it in the rows; the race tables have no terminator (fixed_tables())
+                if e - p > 24 or 0xff in psx[p:e] or '<' in en:
+                    continue
+                pad = max(0, (128 - vwf_wrap.text_width(en)) // 2 // 4)   # centred in the 128 px bar
+                en = ' ' * pad + en + '<FF01>'
             groups.setdefault(psx[p:e + 2], set()).add(en)
     mem = bytes(img.mem)
     for ja, ens in groups.items():
