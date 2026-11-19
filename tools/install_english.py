@@ -197,6 +197,7 @@ def names(repo, out, img):
         if code < 256 and not nmap[code]:
             nmap[code] = ord(ch)
     open(os.path.join(out, 'name_map.bin'), 'wb').write(bytes(nmap))
+    patches += fixed_tables(repo, img)
     patches += descriptions(repo, img)
     blob = bytearray(b'P1NM') + struct.pack('<I', len(patches))
     for a, b in patches:
@@ -256,6 +257,61 @@ def battle_text(repo, out, img):
     for a in sorted(found):
         blob += struct.pack('<II', a, len(found[a])) + found[a]
     open(os.path.join(out, 'btl_text.bin'), 'wb').write(bytes(blob))
+
+
+def fixed_tables(repo, img):
+    """Fixed-slot small-font tables of the PS1 overlays, found in Persona.exe by their Japanese
+    (read from the first release's overlays in the repo's data/psx; skipped without them):
+    the 26 race names (6 bytes each, one copy per field overlay), the battle ANALYZE race tags
+    (27 x 8 bytes) and the AUTO battle modes (3 x 10 bytes). Every PC copy gets the English."""
+    import demons
+    import skills
+    import btlui
+    psx = os.path.join(repo, 'data', 'psx')
+    out = []
+    def every(orig, new, what):
+        hits, i = [], img.mem.find(orig)
+        while i >= 0:
+            hits.append(img.base + i)
+            i = img.mem.find(orig, i + 1)
+        for a in hits:
+            out.append((a, new))
+        print(f'{what}: {len(hits)} cop{"y" if len(hits) == 1 else "ies"} in Persona.exe')
+    adv = os.path.join(psx, 'ADV.BIN')
+    if os.path.exists(adv):
+        a = demons.RACE_TABLES['ADV'] - demons.OVL_BASE
+        orig = open(adv, 'rb').read()[a:a + demons.RACE_COUNT * demons.RACE_LEN]
+        new = bytearray(orig)
+        ren = demons.race_en()
+        for i, _ja in demons.races():
+            t = ren.get(i + 1, '')
+            if t and len(t) <= demons.RACE_LEN:
+                b = skills.encode(i, t)
+                new[i * demons.RACE_LEN:(i + 1) * demons.RACE_LEN] = b + bytes(demons.RACE_LEN - len(b))
+        every(orig, bytes(new), 'race names')
+    btlp = os.path.join(psx, 'BTLP.BIN')
+    if os.path.exists(btlp):
+        d = open(btlp, 'rb').read()
+        B = btlui.B
+        races = btlui.psp_races()
+        a0 = 0x800E2068
+        orig = d[a0 - B:a0 - B + 8 * len(races)]
+        new = bytearray(orig)
+        for k, name in enumerate(races, 1):
+            b = btlui.sf(name) + bytes([0xCB, 0xFF])
+            if len(b) <= 8:
+                new[(k - 1) * 8:k * 8] = b + bytes(8 - len(b))
+        every(orig, bytes(new), 'battle race tags')
+        auto = btlui.AUTO
+        lo = min(a for a, _ in auto)
+        orig = d[lo - B:lo - B + 10 * len(auto)]
+        new = bytearray(orig)
+        for a, t in auto:
+            b = btlui.sf(t) + b'\xff'
+            if len(b) <= 10:
+                new[a - lo:a - lo + 10] = b + bytes(10 - len(b))
+        every(orig, bytes(new), 'AUTO modes')
+    return out
 
 
 def descriptions(repo, img):
