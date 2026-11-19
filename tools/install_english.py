@@ -211,6 +211,7 @@ def names(repo, out, img):
     patches += descriptions(repo, img)
     patches += menu_text(img, 'cells')
     patches += choices(img)[1]
+    patches += name_entry(img)
     blob = bytearray(b'P1NM') + struct.pack('<I', len(patches))
     for a, b in patches:
         blob += struct.pack('<IH', a, len(b)) + b
@@ -386,6 +387,77 @@ def choices(img):
         patches.append((img.base + table + 8 * k + 8, bytes([rn, cn, w])))
     print(f'choices: {len(msgs)} of {ch.COUNT}')
     return msgs, patches
+
+NAME_GRID = 0x5d8940                    # the name entry keyboard: 4 pages x 6 rows x 10 u16 glyphs
+
+
+def name_entry(img):
+    """The name entry screen, as the PS1 patch has it (src/asm/name): the ABC page of the keyboard
+    becomes A-Z | a-z with a few marks (name_grid.py). -> [(PC address, bytes)] for names.bin."""
+    import etext
+    import name_grid
+    grid = b''.join(struct.pack('<H', etext.char2g[c]) for r in name_grid.rows() for c in r)
+    at = NAME_GRID + 2 * 120            # page 2 (hiragana, katakana, ABC, dakuten hiragana)
+    old = bytes(img.mem[at - img.base:at - img.base + 4])
+    if old != struct.pack('<2H', 0xa6, 0xa7):
+        print('name entry: the ABC page is not where it was expected; left as it is')
+        return []
+    out = [(at, grid)]
+    # the sprite layout table (NAME.BIN 0x3F28 on the PS1, the same 50 x 20 bytes here): the page
+    # tabs (7-10) and their frames (29-32) hidden (name/abc_only.asm), the window labels (23-25)
+    # pointed at the Family / Given / Nick cells of the label atlas (name_gfx.py, name_labels())
+    import name_gfx
+    sprites = 0x5d8558
+    if bytes(img.mem[sprites + 20 * 23 - img.base:sprites + 20 * 23 + 12 - img.base]) != bytes.fromhex('800000002800000010100820'):
+        print('name entry: the sprite table is not where it was expected; labels left as they are')
+        return out
+    for k in (7, 8, 9, 10):
+        out.append((sprites + 20 * k + 0x12, bytes([0xe0])))
+    for k in (29, 30, 31, 32):
+        out.append((sprites + 20 * k + 0x12, bytes([0xc0])))
+    for k, (u, v) in name_gfx.WINDOW_LABELS.items():
+        e = sprites + 20 * k
+        out.append((e, struct.pack('<H', name_gfx.LABEL_X)))
+        out.append((e + 8, bytes([0x30, 0x10, 5, u, v])))
+        out.append((e + 16, struct.pack('<H', 480 + name_gfx.LABEL_CLUT_ROW)))
+    return out
+
+def name_labels(repo, cd, out):
+    """NAMEDT.BIN: the name entry's button labels (Hira / Kata / ABC / Kanji / Clear / Enter /
+    Family / Given / Nick / Delete / Back) drawn in English into its label atlas, plus a white
+    palette row for the window labels (the translation's name_gfx.py)."""
+    import tim
+    import name_gfx
+    src = os.path.join(cd, 'NAMEDT.BIN')
+    if not os.path.exists(src):
+        return
+    shutil.copyfile(src, os.path.join(repo, 'data', 'psx', 'NAMEDT.BIN'))
+    os.makedirs(name_gfx.PREVIEW, exist_ok=True)
+    name_gfx.main()
+    d = bytearray(open(src, 'rb').read())
+    t = tim.parse(bytes(d), name_gfx.TIM_OFF)
+    atlas = open(os.path.join(name_gfx.OUT, 'namedt_111C.bin'), 'rb').read()
+    clut = open(os.path.join(name_gfx.OUT, 'namedt_clut4.bin'), 'rb').read()
+    d[t['at']:t['at'] + len(atlas)] = atlas
+    at = t['clut']['at'] + 32 * name_gfx.LABEL_CLUT_ROW
+    d[at:at + len(clut)] = clut
+    # the empty tab column takes the light panel texture and loses its divider (the translation's
+    # src/asm/namedt/tab_column.asm; the PC file matches the PS1 one there)
+    fill = bytes.fromhex('130d131d 15131 51a 190f1a1b 1212151e 0e121a22 121a201f 121e2219 151e190c'
+                         '151a140a 14151212 19121215 150c121a 190c0f19 190e1219 19121212 1b150f13'.replace(' ', ''))
+    for y0 in (32, 48, 64, 80, 96, 112):
+        for r in range(16):
+            o = 0x3350 + (y0 + r) * 256 + 172
+            d[o:o + 4] = fill[4 * r:4 * r + 4]
+    for r in range(1, 7):
+        o = 0xA48 + 8 + 8 * (5 * r + 3)
+        d[o:o + 2] = bytes([96, 24])
+        for c in (1, 2, 3):
+            o = 0xB90 + 8 + 2 * (r * 19 + c)
+            d[o:o + 2] = struct.pack('<H', 5 * r + 3)
+    d[0xB90 + 8 + 2 * 3:0xB90 + 8 + 2 * 3 + 2] = struct.pack('<H', 1)
+    d[0xB90 + 8 + 2 * (7 * 19 + 3):0xB90 + 8 + 2 * (7 * 19 + 3) + 2] = struct.pack('<H', 5 * 7 + 1)
+    open(os.path.join(out, 'NAMEDT.BIN'), 'wb').write(bytes(d))
 
 def menu_text(img, kind):
     """tools/menu_text.tsv: this project's English for menu text the translation leaves in
@@ -659,6 +731,7 @@ def main():
     if os.path.exists(exe):
         img = fake_slps(repo, exe)
         small_font(repo, cd, out)
+        name_labels(repo, cd, out)
         names(repo, out, img)
         battle_text(repo, out, img)
         msg_text(repo, out, img)

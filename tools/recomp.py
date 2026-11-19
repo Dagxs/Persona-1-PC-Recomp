@@ -554,6 +554,16 @@ PATCHES[0x52e6f0] = ['if (vwf_menu_on && vwf_btl_on) btl_name_copy(0);',
 for a, slot in ((0x52f97f, 0x6391e0), (0x52f995, 0x639228), (0x52f9ab, 0x639240), (0x52f9c1, 0x639258),
                 (0x52f9d7, 0x6391f8), (0x52f9ed, 0x639270), (0x52fa03, 0x639210)):
     PATCHES[a] = [f'WR32(ESI + 0xcu, vwf_menu_on && vwf_btl_on ? btl_name_slot(0x{slot:x}u) : 0x{slot:x}u);']
+# The name entry, as the PS1 patch has it (name/latin_start.asm, abc_only.asm): it opens on the
+# Latin keyboard page (2; tools/install_english.py name_entry() fills it with A-Z | a-z) with the
+# caret on its first key, and the page never changes (NameSetPage's store, 0x53aa9f).
+PATCHES[0x53ad82] = ['if (english_on) { WR8(0x657f98u, 2); WR16(0x657fd0u, 1); WR16(0x657fd2u, 0); }',
+                     'R[1] = (uint32_t)(RD32((uint32_t)(0x657f98u)));']
+PATCHES[0x53aa9f] = ['if (!english_on) WR8(0x657f98u, (uint8_t)R[1]);']
+# ... and the caret's row is clamped where it is placed: the left column holds only the field
+# switch (row 5) once the page tabs are hidden (name/abc_only.asm 3)
+PATCHES[0x53a163] = ['if (english_on && RD16(0x657fd0u) == 0) WR16(0x657fd2u, 5);',
+                     'R[0] = (R[0] & 0xffff0000u) | (uint16_t)(RD16((uint32_t)(0x657fd2u)));']
 # ... and the dialogue interpreters' name inserts (after `left = 10`): the whole name
 for k, a in enumerate((0x47941a, 0x4210c3, 0x4e1f03)):
     PATCHES[a] = [f'if (vwf_menu_on) sf_insert({k});',
