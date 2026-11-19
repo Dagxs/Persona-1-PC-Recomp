@@ -293,6 +293,8 @@ extern int vwf_menu_on;
 void sf_record(void);
 int sf_sort(void);
 void sf_insert(int copy);
+uint32_t msg_text(uint32_t p);
+extern int english_on;
 void vwf_btl_glyph(void);
 void vwf_btl_str16(void);
 uint32_t btl_text(uint32_t p);   // a battle string -> its English (or itself)

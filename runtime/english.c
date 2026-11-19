@@ -101,6 +101,8 @@ void english_boot(void) {
     map_titles_load();
     vwf_field_on = 1;
     // names in the menus at their real width, whole (vwf_menu.c); P1_MENUVWF=0 turns it off
+    extern void msg_text_load(void);   // the overlays' own messages (msg_text.c)
+    msg_text_load();
     extern void sf_names_load(void);
     sf_names_load();
     vwf_menu_on = !getenv("P1_MENUVWF") || atoi(getenv("P1_MENUVWF"));

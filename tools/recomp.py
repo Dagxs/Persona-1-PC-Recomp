@@ -541,6 +541,10 @@ PATCHES[0x421490] = ['if (vwf_menu_on) sf_record();',
                      'R[0] = (uint32_t)(RD32((uint32_t)(R[4] + 0x8u)));']
 PATCHES[0x5496d0] = ['if (vwf_menu_on && sf_sort()) { ESP += 8u; return; }',
                      '{ uint32_t r = op_sub(R[4], 0x74u, 32); R[4] = (uint32_t)(r); }']
+# The overlays' own messages (runtime/msg_text.c): the interpreters' per-glyph read
+for a in (0x478f42, 0x420c05, 0x4e1a45):
+    PATCHES[a] = ['if (english_on) EDI = msg_text(EDI);',
+                  'R[3] = (R[3] & 0xffff0000u) | (uint16_t)(RD8((uint32_t)(R[7])));']
 # ... and the dialogue interpreters' name inserts (after `left = 10`): the whole name
 for k, a in enumerate((0x47941a, 0x4210c3, 0x4e1f03)):
     PATCHES[a] = [f'if (vwf_menu_on) sf_insert({k});',

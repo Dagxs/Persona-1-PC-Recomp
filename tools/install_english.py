@@ -343,6 +343,51 @@ def battle_text(repo, out, img):
     open(os.path.join(out, 'btl_text.bin'), 'wb').write(bytes(blob))
 
 
+def msg_text(repo, out, img):
+    """msg_text.bin: English for the messages the PS1 overlays ADV, DNG and S2D keep in their own
+    data (the town's remarks, "There seems to be nothing here.", save and Persona prompts), which
+    the Windows port compiled into Persona.exe. Each row's Japanese is read from the first
+    release's overlay (the developer's data/psx; skipped without it) and found byte for byte in
+    the exe; the dialogue interpreters read the English instead when they start one of those
+    strings (runtime/msg_text.c). Format: "P1MS", u32 count, then {u32 PC address, u32 length,
+    bytes}."""
+    import toolbelt
+    import etext
+    found, groups = {}, {}
+    for name in ('ADV', 'DNG', 'S2D'):
+        path = os.path.join(repo, 'data', 'psx', name + '.BIN')
+        if not os.path.exists(path):
+            print(f'msg text: no {path}; the {name} messages stay Japanese')
+            continue
+        psx = open(path, 'rb').read()
+        for r in toolbelt.merged_rows(name):
+            en = (r.get('en') or '').strip()
+            if not en.endswith('<FF01>'):
+                continue                    # fixed-size labels (the race tables: fixed_tables())
+            p = int(r['pos'], 16)
+            e = psx.find(bytes([0xff, 0x01]), p, p + 800)
+            if e < 0:
+                continue
+            groups.setdefault(psx[p:e + 2], set()).add(en)
+    mem = bytes(img.mem)
+    for ja, ens in groups.items():
+        if len(ens) != 1:
+            continue
+        try:
+            b = etext.encode(ens.pop(), end=None)
+        except Exception:
+            continue
+        i = mem.find(ja)
+        while i >= 0:
+            if mem[i - 1] == 0 or mem[i - 2] == 0xff:      # a string start
+                found[img.base + i] = b
+            i = mem.find(ja, i + 1)
+    blob = bytearray(b'P1MS') + struct.pack('<I', len(found))
+    for a in sorted(found):
+        blob += struct.pack('<II', a, len(found[a])) + found[a]
+    open(os.path.join(out, 'msg_text.bin'), 'wb').write(bytes(blob))
+    print(f'msg text: {len(found)} strings in Persona.exe for {len(groups)} messages')
+
 def fixed_tables(repo, img):
     """Fixed-slot small-font tables of the PS1 overlays, found in Persona.exe by their Japanese
     (read from the first release's overlays in the repo's data/psx; skipped without them):
@@ -521,6 +566,7 @@ def main():
         small_font(repo, cd, out)
         names(repo, out, img)
         battle_text(repo, out, img)
+        msg_text(repo, out, img)
 
     # movie subtitles (the runtime draws them over the movies)
     subs = os.path.join(repo, 'translation', 'manual', 'fmv', 'subtitles.tsv')
