@@ -282,4 +282,5 @@ void sf_insert(int copy) {
     WR8(scratch[copy] + m->len, 0xff);
     EDI = scratch[copy];
     WR8(ESI + 0x35u, m->len);
+    if (sf_log) fprintf(stderr, "sf_insert: copy %d, name at %08x, %d glyphs\n", copy, m->addr, m->len);
 }

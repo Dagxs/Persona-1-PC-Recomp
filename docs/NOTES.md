@@ -118,7 +118,9 @@ translation's docs (third_party/persona-translation/docs) usually describe the s
   quads cut to each glyph's ink, squeezed to the field when wider (down to 0.70 for the longest).
   Seen on the Equip screen. The dialogue inserts (MsgStep item / skill / demon / Persona cases, all
   ending at `0x47941a` / `0x4210c3` / `0x4e1f03` with edi = the record's head and left = 10) read
-  the whole name from a scratch buffer (written, not yet seen in game).
+  the whole name from a scratch buffer (written, not yet seen in game). Record layouts the inserts
+  use: item names 0x5ce238 + 32*id, skills 0x5d1b70 + 20*id, demons 0x5cb5cc + 56*id, Personas
+  0x5d4f00 + 44*id (the name is 8 bytes into the Persona record: personas.NAME).
 - Still cut at 10 glyphs: names in battle (BTLP panels and the insert buffers `0x6391e0..`, 24 bytes
   each), the Persona status bar and Persona Data bar (sprite rows, not maps), and any menu that
   copies map cells instead of writing them. The debug menus' strings (BTLP 0x800DD000..) and the

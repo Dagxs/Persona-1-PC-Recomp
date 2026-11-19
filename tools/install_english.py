@@ -188,7 +188,7 @@ def names(repo, out, img):
     pen = personas.record_en()
     for k, va, _ja in personas.records():
         if pen.get(k):
-            put(va, enc(pen[k]), pen[k])
+            put(va + personas.NAME, enc(pen[k]), pen[k])     # the name sits 8 bytes into the record
     den = demons.record_en()
     for k, va, _ja in demons.records():
         if den.get(k):
