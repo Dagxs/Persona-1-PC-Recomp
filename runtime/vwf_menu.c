@@ -328,3 +328,51 @@ uint32_t btl_name_slot(uint32_t slot) {
 
 // vwf_btl.c: is p inside one of those whole-name buffers?
 int btl_name_buf(uint32_t p) { return bbuf && p >= bbuf && p < bbuf + BSLOT_N * BBUF; }
+
+// The name entry's family and given names at eight letters (the PS1 patch's name/long_names.asm).
+// The name screen keeps eight u16 glyph cells per field (family 0x657f9c, given 0x657fac); retail
+// writes five of them into the 10-byte save slots as 16 px glyphs (0x539096..). With English on,
+// the slots get one English font byte per letter (ASCII + 0x68; the interpreters read these
+// inserts through their text path, where 88-E6 are English), then FF 01, as on the PS1. A slot
+// written before this keeps its form: the readers (sf_name_left) only lift the five-glyph limit
+// for a slot with a terminator and no two-byte lead.
+static void name_compact(uint32_t dst, uint32_t cells) {
+    extern uint8_t vwf_fw_ascii[0x800];
+    for (uint32_t i = 0; i < 10; i++) WR8(dst + i, 0);
+    int len = 0;
+    for (int i = 0; i < 8; i++)
+        if (RD16(cells + 2u * (uint32_t)i)) len = i + 1;
+    for (int i = 0; i < len; i++) {
+        uint16_t g = RD16(cells + 2u * (uint32_t)i);
+        uint8_t a = !g ? ' ' : g < 0x800 && vwf_fw_ascii[g] ? vwf_fw_ascii[g] : '?';
+        WR8(dst + (uint32_t)i, (uint8_t)(a + 0x68));
+    }
+    WR8(dst + (uint32_t)len, 0xff);
+    WR8(dst + (uint32_t)len + 1, 0x01);
+}
+
+void name_save_compact(void) {
+    uint32_t slot = RD32(0x647f68u);
+    name_compact(slot, 0x657f9cu);                           // family
+    name_compact(slot + 0xau, 0x657facu);                    // given
+}
+
+// NameEntryComplete (0x53a1b0): every field must hold something, in any of its eight cells
+int name_complete(void) {
+    static const uint32_t field[3] = { 0x657f9cu, 0x657facu, 0x657fbcu };
+    for (int f = 0; f < 3; f++) {
+        int any = 0;
+        for (uint32_t i = 0; i < 8 && !any; i++) any = RD16(field[f] + 2u * i) != 0;
+        if (!any) return 0;
+    }
+    return 1;
+}
+
+// the interpreters' family / given name inserts, once edi points at the slot: a compact slot is
+// read to its FF instead of five glyphs
+void sf_name_left(void) {
+    uint8_t b0 = RD8(EDI);
+    if (b0 < 0x88 || b0 == 0xff) return;                     // a 16 px glyph form (older save)
+    for (uint32_t i = 0; i < 10; i++)
+        if (RD8(EDI + i) == 0xff) { WR8(ESI + 0x35u, 10); return; }
+}

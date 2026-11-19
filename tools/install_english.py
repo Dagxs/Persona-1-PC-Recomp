@@ -433,6 +433,17 @@ def name_entry(img):
         out.append((e, struct.pack('<H', name_gfx.LABEL_X)))
         out.append((e + 8, bytes([0x30, 0x10, 5, u, v])))
         out.append((e + 16, struct.pack('<H', 480 + name_gfx.LABEL_CLUT_ROW)))
+    # eight-letter family and given names (name/long_names.asm; the writer and readers are in
+    # runtime/vwf_menu.c): field lengths 8 / 8 / 8, the two preview strips eight cells wide at
+    # u = 0x00 and 0x80 (texture x = 0x200 + g_name_x)
+    if bytes(img.mem[0x5d8544 - img.base:0x5d8550 - img.base]) == bytes.fromhex('182c00000000100005050800'):
+        out.append((0x5d8544, bytes([0x00, 0x20, 0x00])))   # g_name_x
+        out.append((0x5d854c, bytes([8, 8, 8])))             # g_name_len
+        for k, u in ((46, 0x00), (47, 0x80)):
+            out.append((sprites + 20 * k + 8, bytes([0x80])))
+            out.append((sprites + 20 * k + 0xb, bytes([u])))
+    else:
+        print('name entry: the field table is not where it was expected; names stay five letters')
     return out
 
 def name_labels(repo, cd, out):
@@ -470,6 +481,10 @@ def name_labels(repo, cd, out):
             d[o:o + 2] = struct.pack('<H', 5 * r + 3)
     d[0xB90 + 8 + 2 * 3:0xB90 + 8 + 2 * 3 + 2] = struct.pack('<H', 1)
     d[0xB90 + 8 + 2 * (7 * 19 + 3):0xB90 + 8 + 2 * (7 * 19 + 3) + 2] = struct.pack('<H', 5 * 7 + 1)
+    # the family and given rules run to eight cells like the nickname's (namedt/name_fields.asm)
+    for v in (183, 184, 199, 200):
+        o = 0x3350 + v * 256 + 96
+        d[o:o + 32] = bytes([0xe4]) * 32
     open(os.path.join(out, 'NAMEDT.BIN'), 'wb').write(bytes(d))
 
 def menu_text(img, kind):

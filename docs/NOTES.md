@@ -146,8 +146,11 @@ translation's docs (third_party/persona-translation/docs) usually describe the s
   page store `0x53aa9f`, caret placement `0x53a163`. Labels and the closed tab column are in
   NAMEDT.BIN (data/en). Typed names keep the 16 px font's full-width glyphs; fw_map.bin draws them
   in the English font (dialogue and battle text). The nickname is stored as each glyph's low byte
-  (`0x539191`), which the small font's Latin cells match. Names stay 5 / 5 / 8 letters (the PS1
-  patch's 8-letter family and given names change the stored form; not done).
+  (`0x539191`), which the small font's Latin cells match. Family and given names take eight
+  letters (g_name_x `0x5d8544`, g_name_len `0x5d854c`, NameEntryComplete `0x53a1b0`): the writer
+  (`0x539096`, vwf_menu.c name_save_compact) stores them as English font bytes + FF 01 in the
+  10-byte slots (`0x5d2e58` + id * 20, given +10), and the interpreters' family / given inserts
+  (12 sites after `lea edi`) read such a slot to its FF. Older saves keep their 16 px form.
 - Tests: P1_TURBO=n runs the game clock n ms per call and ends movies at once, so P1_KEYS scripts
   land on the same frames each run (new game: Enter taps to the name screen, then Right, Enter,
   F2, Enter for each field, Insert, Enter, Up, Enter; F1 opens the field menu). P1_SFLOG logs the
