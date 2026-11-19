@@ -10,7 +10,10 @@ string by:
     that only one run of consecutive PC strings fits;
   * chains: from a matched row, the next / previous PC string must fill the row's PS1 slot
     exactly (untranslated, both disks hold the same bytes).
-Rows are dropped when two rows with different English claim one PC string, when the matched
+With the PS1 overlay at hand (psx: BTLP.BIN of the first release), a row's Japanese is read from
+it and found byte for byte in the exe instead: every copy of it gets the English when the exe
+holds it more than once, unless rows with the same Japanese differ in English (then the slot
+chains decide). Rows are dropped when two rows with different English claim one PC string, when the matched
 string's insert codes differ from the English's, and in the debug-menu block (0x800DD000 on,
 strings separated by FF 00). Returns {PC address: English bytes}.
 """
@@ -25,7 +28,7 @@ K = 5                              # fingerprint length
 LAYOUT = {0xF6, 0xFC, 0xF5, 0xEF, 0xFB, 0xF7, 0x02}
 
 
-def build(img, base, sections, rows, manual, etext, vwf_wrap, btlp=None, log=print):
+def build(img, base, sections, rows, manual, etext, vwf_wrap, psx=None, log=print):
     """img: the exe's memory image (bytes), base: image base, sections: [(start, end)] of the data
     sections (image offsets), rows: {file offset: row}, manual: {pos string: manual row}."""
     P = sorted(rows)
@@ -202,10 +205,38 @@ def build(img, base, sections, rows, manual, etext, vwf_wrap, btlp=None, log=pri
         except Exception:
             return None
 
+    exact = 0
+    if psx:
+        # every PC string start, for exact lookups
+        pc_starts = collections.defaultdict(list)
+        for st in seq:
+            pc_starts[img[st:st + lens[st]]].append(base + st)
+        ja_of = {}
+        for p in rows:
+            e = psx.find(bytes([0xff, 0xf5]), p, p + 700)
+            f = psx.find(bytes([0xff, 0xef]), p, p + 700)
+            ends = [x for x in (e, f) if x >= 0]
+            if ends:
+                ja_of[p] = psx[p:min(ends) + 2]
+        same_ja = collections.defaultdict(set)
+        for p, j in ja_of.items():
+            same_ja[j].add((rows[p].get('en') or '').strip())
+        for p, j in ja_of.items():
+            hits = pc_starts.get(j, [])
+            if not hits:
+                continue
+            if len(same_ja[j]) == 1:
+                exact += 1
+                mapping[p] = hits[0]
+                for extra in hits[1:]:
+                    mapping[(p, extra)] = extra          # the other copies, same English
+            elif mapping.get(p) in hits:
+                exact += 1
     by_pc = collections.defaultdict(list)
     for p, a in mapping.items():
-        if a and not EXCLUDE[0] <= p + B < EXCLUDE[1]:
-            by_pc[a].append(p)
+        q = p[0] if isinstance(p, tuple) else p
+        if a and not EXCLUDE[0] <= q + B < EXCLUDE[1]:
+            by_pc[a].append(q)
     out, dropped = {}, collections.Counter()
     for a, ps in by_pc.items():
         texts = {(rows[p].get('en') or '').strip() for p in ps}
@@ -225,6 +256,6 @@ def build(img, base, sections, rows, manual, etext, vwf_wrap, btlp=None, log=pri
             dropped['insert codes differ'] += 1
         else:
             out[a] = b
-    log(f'battle text: {len(out)} of {len(rows)} strings matched ({n_known} known anchors, '
-        f'{len(anch) - n_known} fingerprints); dropped: {dict(dropped)}')
+    log(f'battle text: {len(out)} PC strings for {len(rows)} rows ({exact} rows found byte for byte, '
+        f'{n_known} known anchors, {len(anch) - n_known} fingerprints); dropped: {dict(dropped)}')
     return out

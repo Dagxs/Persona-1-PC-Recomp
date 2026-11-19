@@ -247,7 +247,11 @@ def battle_text(repo, out, img):
     manual = {r['pos']: r for r in toolbelt.read_manual('BTLP')}
     data = [(a - img.base, e - img.base) for (nm, a, e, ch) in img.sections
             if not ch & 0x20000000 and nm.startswith('.data')]
-    found = btl_map.build(img.mem, img.base, data, rows, manual, etext, vwf_wrap)
+    # the PS1 overlay (BTLP.BIN of the first release), when the developer has it in the repo's
+    # data/psx: exact matches; without it, slot-size matching alone
+    psx_path = os.path.join(repo, 'data', 'psx', 'BTLP.BIN')
+    psx = open(psx_path, 'rb').read() if os.path.exists(psx_path) else None
+    found = btl_map.build(img.mem, img.base, data, rows, manual, etext, vwf_wrap, psx=psx)
     blob = bytearray(b'P1BT') + struct.pack('<I', len(found))
     for a in sorted(found):
         blob += struct.pack('<II', a, len(found[a])) + found[a]
