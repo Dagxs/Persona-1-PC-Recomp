@@ -11,6 +11,7 @@
 #include <string.h>
 void subtitles_draw(const char *movie, double t, uint32_t pixels, uint32_t pitch, int w, int h);
 void quote_draw(const char *movie, double t, uint32_t pixels, uint32_t pitch, int w, int h);
+void poems_draw(const char *movie, const char *host, double t, uint8_t *rgba, int w, int h);
 #define PL_MPEG_IMPLEMENTATION
 #include "../third_party/pl_mpeg/pl_mpeg.h"
 
@@ -51,6 +52,7 @@ struct movie {
     uint64_t start_ns;             // when SetState(RUN) was called
     int running, ended;
     uint8_t *rgb;
+    char host[600];                // the movie file (the ending poems decode a plate from it)
 };
 
 static struct movie *M(uint32_t obj) { return com_host(obj); }
@@ -82,6 +84,7 @@ static uint32_t amms_OpenFile(const uint32_t *a) {
     for (uint32_t c; (c = RD16(a[1] + 2u * k)) && k + 1 < sizeof path; k++) path[k] = (char)c;
     path[k] = 0;
     files_map(path, host, sizeof host);
+    snprintf(m->host, sizeof m->host, "%s", host);
     {   // the movie's name: file name without extension
         const char *b = strrchr(path, 0x5c) ? strrchr(path, 0x5c) + 1 : path;   // after the last backslash
         size_t j = 0;
@@ -218,6 +221,8 @@ static uint32_t sample_Update(const uint32_t *a) {
     if (s) {
         int w = (int)f->width, h = (int)f->height;
         plm_frame_to_rgba(f, m->rgb, w * 4);
+        extern int english_on;
+        if (english_on) poems_draw(m->name, m->host, f->time, m->rgb, w, h);
         for (int y = 0; y < h && y < (int)s->h; y++) {
             const uint8_t *src = m->rgb + (size_t)y * (size_t)w * 4;
             uint8_t *dst = MEM + s->pixels + (uint32_t)y * s->pitch;

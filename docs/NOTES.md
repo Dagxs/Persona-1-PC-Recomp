@@ -111,9 +111,10 @@ translation's docs (third_party/persona-translation/docs) usually describe the s
   patch's tails), map titles longer than 10 characters, the ending poems in MV1E/MV25, the
   logo-sheet names of the staff roll, the battle strings btl_map.py cannot match (164 of 1001)
   and the debug menus.
-  Done: story dialogue, movie subtitles and the opening quote, button prompts.
+  Done: story dialogue, movie subtitles, the opening quote and the ending poems (runtime/poems.c,
+  checked on the decoded movies with P1_POEMTEST), button prompts.
   Written but not yet seen in game: dungeon field-script boxes (vwf_field.c), the dungeon / town
   dialogue copies, item / skill / Persona / demon names and the small-font Latin cells, the
   ending pages (EXE/END.BIN), descriptions, the whole battle text system (vwf_btl.c, TALK files,
-  btl_text.bin; P1_BTLVWF=0 turns its engine off, but the English TALK files and descriptions
+  btl_text.bin, race names and tags, AUTO modes; P1_BTLVWF=0 turns its engine off, but the English TALK files and descriptions
   then show as wrong glyphs).

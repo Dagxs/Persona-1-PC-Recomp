@@ -100,6 +100,8 @@ void english_boot(void) {
     vwf_field_on = 1;
     // the battle text system (vwf_btl.c): messages, Triangle help, demon conversations
     vwf_btl_on = !getenv("P1_BTLVWF") || atoi(getenv("P1_BTLVWF"));
+    extern void poems_test(void);
+    poems_test();                           // debug: P1_POEMTEST
     extern void btl_text_load(void);
     if (vwf_btl_on) btl_text_load();
     if (rt_trace) fprintf(stderr, "English dialogue on (%s)\n", en);

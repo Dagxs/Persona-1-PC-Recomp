@@ -441,6 +441,9 @@ def main():
     subs = os.path.join(repo, 'translation', 'manual', 'fmv', 'subtitles.tsv')
     if os.path.exists(subs):
         shutil.copyfile(subs, os.path.join(out, 'subtitles.tsv'))
+    poems = os.path.join(repo, 'translation', 'manual', 'fmv', 'poems.tsv')   # the ending poems
+    if os.path.exists(poems):
+        shutil.copyfile(poems, os.path.join(out, 'poems.tsv'))
     quote = os.path.join(repo, 'translation', 'manual', 'fmv', 'opening.tsv')   # the opening movie's quote
     if os.path.exists(quote):
         shutil.copyfile(quote, os.path.join(out, 'opening.tsv'))
