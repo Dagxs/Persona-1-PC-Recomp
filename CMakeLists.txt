@@ -18,7 +18,14 @@ set(WARN_OFF -Wno-unused-label -Wno-unused-variable -Wno-parentheses-equality -W
 # The generated code is big and simple: -O1 compiles much faster than -O2 at little cost.
 set_source_files_properties(${GEN_SRC} PROPERTIES COMPILE_OPTIONS "-O1;${WARN_OFF}")
 
-add_executable(persona1 ${GEN_SRC} ${RT_SRC})
+# the port's own icon as persona1.exe's file icon, when recomp.py found one in Persona.exe
+set(ICON_SRC)
+if(WIN32 AND EXISTS ${CMAKE_SOURCE_DIR}/gen/icon.rc)
+  enable_language(RC)
+  set(ICON_SRC ${CMAKE_SOURCE_DIR}/gen/icon.rc)
+endif()
+
+add_executable(persona1 ${GEN_SRC} ${RT_SRC} ${ICON_SRC})
 target_include_directories(persona1 PRIVATE runtime gen ${SDL3_INCLUDE})
 target_compile_options(persona1 PRIVATE -std=gnu11 -fno-strict-aliasing -fwrapv -g ${WARN_OFF})
 target_link_libraries(persona1 PRIVATE ${SDL3_LIB} m)

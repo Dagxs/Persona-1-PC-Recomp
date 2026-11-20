@@ -576,6 +576,36 @@ for k, a in enumerate((0x47941a, 0x4210c3, 0x4e1f03)):
                   '{ uint32_t r = op_or(R[0], 0x4001u, 32); R[0] = (uint32_t)(r); }']
 
 
+def write_icon(exe, out):
+    """gen/icon.ico + gen/icon.rc: the port's own icon (its RT_GROUP_ICON and RT_ICON resources)
+    for persona1.exe's file icon (CMakeLists.txt). The window icon is read at runtime (icon.c)."""
+    try:
+        import pefile
+        pe = pefile.PE(exe)
+        res = {e.id: e for e in pe.DIRECTORY_ENTRY_RESOURCE.entries}
+        def data(e):
+            d = e.directory.entries[0].data.struct
+            return pe.get_data(d.OffsetToData, d.Size)
+        icons = {e.id: data(e) for e in res[3].directory.entries}
+        grp = data(res[14].directory.entries[0])
+    except Exception as ex:
+        print('icon: none found (%s)' % ex)
+        return
+    count = struct.unpack_from('<H', grp, 4)[0]
+    head = struct.pack('<HHH', 0, 1, count)
+    dirs, blobs, off = b'', b'', 6 + 16 * count
+    for k in range(count):
+        w, h, cc, r, planes, bits, size, iid = struct.unpack_from('<BBBBHHIH', grp, 6 + 14 * k)
+        img = icons[iid]
+        dirs += struct.pack('<BBBBHHII', w, h, cc, r, planes, bits, len(img), off)
+        blobs += img
+        off += len(img)
+    with open(os.path.join(out, 'icon.ico'), 'wb') as f:
+        f.write(head + dirs + blobs)
+    with open(os.path.join(out, 'icon.rc'), 'w') as f:
+        f.write('1 ICON "icon.ico"' + chr(10))
+
+
 def main():
     exe, out = sys.argv[1], sys.argv[2]
     img = Image(exe)
@@ -585,6 +615,7 @@ def main():
     for f in os.listdir(out):
         if f.startswith('code_') and f.endswith('.c'):
             os.remove(os.path.join(out, f))
+    write_icon(exe, out)
     funcs = sorted(disc.entries)
     hdr = '#include "cpu.h"\n#include "funcs.h"\n'
     CHUNK = 400

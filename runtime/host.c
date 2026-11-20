@@ -107,6 +107,8 @@ void host_window_create(const char *title) {
     (void)title;   // the Japanese title is Shift-JIS; SDL wants UTF-8
     window = SDL_CreateWindow("Megami Ibunroku Persona", 640 * cfg.window_scale, 480 * cfg.window_scale, SDL_WINDOW_RESIZABLE);
     if (!window) rt_fatal("SDL window: %s", SDL_GetError());
+    extern void host_window_icon(SDL_Window *w);
+    host_window_icon(window);                       // the original port's icon (icon.c)
     renderer = SDL_CreateRenderer(window, NULL);
     if (!renderer) rt_fatal("SDL renderer: %s", SDL_GetError());
     host_apply_settings(0);
