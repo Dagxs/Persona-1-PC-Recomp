@@ -428,6 +428,11 @@ def name_entry(img):
         out.append((sprites + 20 * k + 0x12, bytes([0xe0])))
     for k in (29, 30, 31, 32):
         out.append((sprites + 20 * k + 0x12, bytes([0xc0])))
+    # the carets open where the init puts the caret, on the 'A' key (name/latin_start.asm 3): the key
+    # caret (26) defined there and visible, the side caret (27) hidden until a button column is used
+    out.append((sprites + 20 * 26, struct.pack('<II', 0x50, 0x80)))
+    out.append((sprites + 20 * 26 + 0x12, bytes([0x60])))
+    out.append((sprites + 20 * 27 + 0x12, bytes([0xa0])))
     for k, (u, v) in name_gfx.WINDOW_LABELS.items():
         e = sprites + 20 * k
         out.append((e, struct.pack('<H', name_gfx.LABEL_X)))

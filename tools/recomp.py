@@ -570,6 +570,10 @@ PATCHES[0x539096] = ['if (english_on) { name_save_compact(); goto L_539185; }', 
 PATCHES[0x53a1b0] = ['if (english_on) { EAX = (uint32_t)name_complete(); ESP += 4u; return; }', 'R[1] = (uint32_t)(0);']
 for a, orig in ((0x420aaf, 'R[0] = (uint32_t)(0);'), (0x420c4a, 'goto L_420d71;'), (0x420c8b, 'goto L_420d71;'), (0x420cac, 'goto L_420d71;'), (0x478db1, 'R[0] = (uint32_t)(0);'), (0x478f87, 'goto L_4790c8;'), (0x478fc8, 'goto L_4790c8;'), (0x478fe9, 'goto L_4790c8;'), (0x4e18ef, 'R[0] = (uint32_t)(0);'), (0x4e1a8a, 'goto L_4e1bb1;'), (0x4e1acb, 'goto L_4e1bb1;'), (0x4e1aec, 'goto L_4e1bb1;')):
     PATCHES[a] = ['if (english_on) sf_name_left();', orig]
+# The init's label upload (six glyphs from 0x5da290 into the name texture at x 0x200, y 0) draws
+# the old Japanese field labels where the eight-cell family preview now starts: blanks instead
+# (name/long_names.asm; the labels are NAMEDT atlas sprites now)
+PATCHES[0x53ad53] = ['R[1] = (R[1] & 0xffff0000u) | (english_on ? 0u : (uint16_t)(RD16((uint32_t)(R[7]))));']
 # ... and the dialogue interpreters' name inserts (after `left = 10`): the whole name
 for k, a in enumerate((0x47941a, 0x4210c3, 0x4e1f03)):
     PATCHES[a] = [f'if (vwf_menu_on) sf_insert({k});',
