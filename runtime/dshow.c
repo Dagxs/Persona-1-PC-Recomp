@@ -136,6 +136,30 @@ static uint32_t gb_RenderFile(const uint32_t *a) {
     int16_t frame[MINIMP3_MAX_SAMPLES_PER_FRAME];
     long off = 0;
     g->channels = 0;
+    // a few sound files (SND/CSR04_*.SEQ) are 16-bit PCM WAV, not MP3
+    if (n >= 12 && !memcmp(buf, "RIFF", 4) && !memcmp(buf + 8, "WAVE", 4)) {
+        int ch = 0, rate = 0, bits = 0, fmt = 0;
+        for (long c = 12; c + 8 <= n;) {
+            uint32_t len = (uint32_t)(buf[c + 4] | buf[c + 5] << 8 | buf[c + 6] << 16 | (uint32_t)buf[c + 7] << 24);
+            long body = c + 8;
+            if (len > (uint32_t)(n - body)) len = (uint32_t)(n - body);
+            if (!memcmp(buf + c, "fmt ", 4) && len >= 16) {
+                fmt = buf[body] | buf[body + 1] << 8;
+                ch = buf[body + 2] | buf[body + 3] << 8;
+                rate = buf[body + 4] | buf[body + 5] << 8 | buf[body + 6] << 16 | buf[body + 7] << 24;
+                bits = buf[body + 14] | buf[body + 15] << 8;
+            } else if (!memcmp(buf + c, "data", 4) && fmt == 1 && bits == 16 && ch >= 1 && ch <= 2 && rate > 0) {
+                size_t samples = len / 2;
+                if (samples > cap) { cap = samples; pcm = realloc(pcm, cap * sizeof *pcm); }
+                memcpy(pcm, buf + body, samples * 2);
+                used = samples - samples % (size_t)ch;
+                g->channels = ch; g->rate = rate;
+                break;
+            }
+            c = body + (long)len + (len & 1);
+        }
+        off = n;                                    // not MP3
+    }
     while (off < n) {
         mp3dec_frame_info_t info;
         int s = mp3dec_decode_frame(&dec, buf + off, (int)(n - off), frame, &info);
@@ -150,7 +174,7 @@ static uint32_t gb_RenderFile(const uint32_t *a) {
         used += add;
     }
     free(buf);
-    if (!g->channels) { free(pcm); fprintf(stderr, "RenderFile %s: no MP3 audio\n", path); return 0x80040241u; }
+    if (!g->channels) { free(pcm); fprintf(stderr, "RenderFile %s: no MP3 or WAV audio\n", path); return 0x80040241u; }
     free(g->pcm);
     g->pcm = pcm;
     g->frames = used / (size_t)g->channels;
