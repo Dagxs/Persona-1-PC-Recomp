@@ -10,3 +10,5 @@ build/
 data/
 gen/
 save/
+crash.log
+game.log

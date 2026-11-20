@@ -46,8 +46,10 @@ DEF(GetModuleFileNameA) { gstrcpy(a[1], gstr(g_module_path), a[2]); return (uint
 DEF(GetCurrentProcess) { UNUSED_ARGS; return 0xffffffffu; }
 DEF(SetPriorityClass) { UNUSED_ARGS; return 1; }
 DEF(SetErrorMode) { UNUSED_ARGS; return 0; }
-DEF(ExitProcess) { if (rt_trace) fprintf(stderr, "ExitProcess(%u)\n", a[0]); exit((int)a[0]); }
-DEF(TerminateProcess) { exit((int)a[1]); }
+// the game ending itself: said in game.log / the console, so a window that closes on its own
+// leaves a reason
+DEF(ExitProcess) { fprintf(stderr, "game called ExitProcess(%u) in %08x\n", a[0], rt_fn_of[rt_tidx]); fflush(stderr); exit((int)a[0]); }
+DEF(TerminateProcess) { fprintf(stderr, "game called TerminateProcess(%u) in %08x\n", a[1], rt_fn_of[rt_tidx]); fflush(stderr); exit((int)a[1]); }
 DEF(UnhandledExceptionFilter) { UNUSED_ARGS; return 0; }
 DEF(RtlUnwind) { UNUSED_ARGS; rt_fatal("RtlUnwind: structured exception unwinding is not supported"); }
 DEF(GetLastError) { UNUSED_ARGS; return last_error; }

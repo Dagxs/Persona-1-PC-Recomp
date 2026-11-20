@@ -196,6 +196,8 @@ void thread_init_main(void) {
 static int thread_main(void *arg) {
     struct gthread *t = arg;
     rt_tidx = (int)(t->id - 0x100);
+    extern void rt_crash_thread(void);
+    rt_crash_thread();                          // crashlog.c
     SDL_LockMutex(gil);
     while (running != t) SDL_WaitCondition(t->turn, gil);
     load(&t->st);
