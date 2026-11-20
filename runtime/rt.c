@@ -73,6 +73,14 @@ _Noreturn void rt_fatal(const char *fmt, ...) {
     exit(70);
 }
 
+// crashlog.c: the running guest thread's state, for a hard crash's crash.log
+void rt_guest_state(FILE *log) {
+    fprintf(log, "  eax=%08x ecx=%08x edx=%08x ebx=%08x esp=%08x ebp=%08x esi=%08x edi=%08x\n  stack:",
+            EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI);
+    for (int k = 0; k < 12; k++) fprintf(log, " %08x", RD32(ESP + 4 * k));
+    fprintf(log, "\n  function: %08x\n", rt_fn_of[rt_tidx]);
+}
+
 void rt_unimpl(uint32_t addr, const char *what) { rt_fatal("untranslated instruction at %08x: %s", addr, what); }
 void rt_divide_error(void) { rt_fatal("divide error"); }
 
@@ -157,6 +165,8 @@ void st_f80(uint32_t a, double v) {
 // ---------------------------------------------------------------- startup
 int main(int argc, char **argv) {
     rt_trace = getenv("P1_TRACE") ? atoi(getenv("P1_TRACE")) : 0;
+    extern void rt_crash_install(void);
+    rt_crash_install();   // a hard crash writes crash.log too (crashlog.c)
     if (argc == 3 && !strcmp(argv[1], "--install")) {          // install from a disc image, no window
         paths_init();
         char err[300];
